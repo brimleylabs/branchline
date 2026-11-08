@@ -39,4 +39,4 @@ jobs:
           composer global config allow-plugins.dealerdirect/phpcodesniffer-composer-installer true
           composer global require --no-interaction wp-coding-standards/wpcs:^3.1 phpcompatibility/phpcompatibility-wp:^2.1 dealerdirect/phpcodesniffer-composer-installer:^1.0
       - name: phpcs
-        run: ~/.composer/vendor/bin/phpcs || ~/.config/composer/vendor/bin/phpcs
+        run: "$(composer global config bin-dir --absolute --quiet)/phpcs"

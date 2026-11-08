@@ -1,0 +1,63 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&display=swap">
+<style>
+  html,body{margin:0;padding:0;background:#ffffff}
+  .d{width:1600px;height:900px;position:relative;font-family:Inter,system-ui,sans-serif;color:#1d2327;background:#fff}
+  h1{position:absolute;left:80px;top:56px;margin:0;font-size:44px;font-weight:700;letter-spacing:-.02em}
+  .lead{position:absolute;left:80px;top:118px;font-size:22px;color:#50575e;width:1000px;line-height:1.4}
+  .legend{position:absolute;left:80px;top:740px;display:flex;gap:40px;font-size:20px;font-weight:600}
+  .legend span{display:inline-flex;align-items:center;gap:10px}
+  .legend i{display:inline-block;width:26px;height:6px;border-radius:3px}
+  .foot{position:absolute;left:80px;top:810px;font-size:18px;color:#646970}
+  .rules{position:absolute;right:80px;top:200px;width:430px;background:#f6f7f7;border:1px solid #dcdcde;border-radius:14px;padding:26px 30px;font-size:19px;line-height:1.5}
+  .rules h2{margin:0 0 12px;font-size:14px;letter-spacing:.08em;text-transform:uppercase;color:#646970}
+  .rules b{display:inline-block;min-width:112px;color:#1d2327}
+  .rules .s{color:#2c4a7a}.rules .c{color:#1e7b3a}.rules .e{color:#8a6d00}.rules .n{color:#8c8f94}
+</style></head><body>
+<div class="d">
+  <h1>Two branches, both changing. One merge, nothing lost.</h1>
+  <div class="lead">Production keeps taking posts, orders and comments. The release branch gets the redesign. Pull brings production down to test against. Publish sends the release up. The rules decide who wins when both sides touched the same row.</div>
+  <svg width="1020" height="440" viewBox="0 0 1020 440" style="position:absolute;left:60px;top:230px" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M40 330 H980" stroke="#8fa3c2" stroke-width="8"/>
+    <path d="M220 330 C 290 330, 290 130, 370 130 H 680 C 760 130, 760 330, 840 330" stroke="#f59e0b" stroke-width="8"/>
+    <path d="M520 326 C 520 260, 545 200, 580 136" stroke="#0e9f8a" stroke-width="5" stroke-dasharray="2 12"/>
+    <g fill="#fff" stroke="#3e5a85" stroke-width="5">
+      <circle cx="130" cy="330" r="11"/><circle cx="220" cy="330" r="11"/><circle cx="340" cy="330" r="11"/>
+      <circle cx="520" cy="330" r="11"/><circle cx="700" cy="330" r="11"/>
+    </g>
+    <g fill="#fff" stroke="#f59e0b" stroke-width="5">
+      <circle cx="400" cy="130" r="11"/><circle cx="520" cy="130" r="11"/><circle cx="640" cy="130" r="11"/>
+    </g>
+    <circle cx="840" cy="330" r="17" fill="#f59e0b" stroke="#fff" stroke-width="5"/>
+    <g font-family="Inter,system-ui,sans-serif" font-weight="700" font-size="22" fill="#1d2327">
+      <text x="40" y="380">production</text>
+      <text x="370" y="92">release</text>
+    </g>
+    <g font-family="Inter,system-ui,sans-serif" font-weight="600" font-size="19">
+      <text x="596" y="236" fill="#0e9f8a">pull</text>
+      <text x="770" y="392" fill="#b8740a">publish</text>
+    </g>
+    <g font-family="Inter,system-ui,sans-serif" font-weight="500" font-size="17" fill="#50575e">
+      <text x="300" y="300">new posts</text><text x="482" y="300">orders</text><text x="660" y="300">comments</text>
+      <text x="372" y="172">pages</text><text x="492" y="172">menus</text><text x="606" y="172">settings</text>
+    </g>
+    <g font-family="Inter,system-ui,sans-serif" font-weight="600" font-size="18" fill="#1d2327">
+      <text x="868" y="300">release + content</text>
+    </g>
+  </svg>
+  <div class="rules">
+    <h2>Who wins a clash</h2>
+    <div><b class="s">Structure</b> the release</div>
+    <div><b class="c">Content</b> production</div>
+    <div><b class="e">Editorial</b> merged by field, clashes to you</div>
+    <div><b class="n">Bookkeeping</b> never shown</div>
+  </div>
+  <div class="legend">
+    <span><i style="background:#8fa3c2"></i>production branch</span>
+    <span><i style="background:#f59e0b"></i>release branch</span>
+    <span><i style="background:#0e9f8a"></i>pull</span>
+  </div>
+  <div class="foot">Branchline, version control for the WordPress database. Runs on Dolt.</div>
+</div>
+</body></html>

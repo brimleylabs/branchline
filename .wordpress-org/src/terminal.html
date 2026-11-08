@@ -1,0 +1,44 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  html,body{margin:0;padding:0;background:#e9edf3}
+  .wrap{width:1280px;height:800px;display:flex;align-items:center;justify-content:center;background:#e9edf3}
+  .win{width:1120px;border-radius:12px;background:#0f1b2d;box-shadow:0 20px 60px rgba(15,27,45,.25);overflow:hidden}
+  .bar{height:38px;background:#16263d;display:flex;align-items:center;padding:0 14px;gap:8px}
+  .bar i{width:12px;height:12px;border-radius:50%;background:#2b3d5a;display:inline-block}
+  .bar span{margin-left:12px;color:#8fa3c2;font:13px Inter,system-ui,sans-serif}
+  pre{margin:0;padding:22px 26px;font:15px/1.55 "JetBrains Mono",Consolas,monospace;color:#d7e0ee;white-space:pre}
+  .p{color:#8fa3c2}.c{color:#f3f6fb;font-weight:600}.ok{color:#4ade80}.k{color:#f59e0b}.g{color:#7f93b3}
+</style></head><body>
+<div class="wrap"><div class="win">
+<div class="bar"><i></i><i></i><i></i><span>staging — wp branchline</span></div>
+<pre><span class="p">$</span> <span class="c">wp branchline pull --yes --message="Pull orders before release 4"</span>
+Merging main into stage
+Incoming:
+  Comments                         +6 ~0 -0
+  Posts, pages and templates       +2 ~1 -0
+  Plugin data: woocommerce_order_items +2 ~0 -0
+Resolved automatically:
+  Field "_regular_price" on post #200040   merged  Content: main wins on meta_value.
+  Product "Branch Tee" (#200040)           merged  Each side changed different fields; combined.
+<span class="ok">Success:</span> Merged. New head 52adm00r4iqfmkdac0ntc250q9i9lb39 on stage.
+
+<span class="p">$</span> <span class="c">wp branchline preview --into=main --from=stage | jq '.human[] | {key, label, reason}'</span>
+{
+  <span class="k">"key"</span>: "wp_posts:f5e1a5942e8bc3123f853501195dbfde",
+  <span class="k">"label"</span>: "Page \"Contact\" (#200005)",
+  <span class="k">"reason"</span>: "Both sides changed: post_content."
+}
+
+<span class="p">$</span> <span class="c">wp branchline publish --yes --resolve=wp_posts:f5e1a5942e8bc3123f853501195dbfde=merged --message="Release 4"</span>
+Merging stage into main
+Incoming:
+  Settings                         +18 ~9 -1
+  Posts, pages and templates       +1 ~3 -0
+  Categories, tags and menus       +1 ~0 -0
+  Plugin data: wc_order_stats      +2 ~0 -0
+Attachments: 1; files copied from /srv/stage/uploads to /srv/prod/uploads
+<span class="ok">Success:</span> Merged. New head up1591epbs9cppc7p51nr9746ommec99 on main. 5 attachment file(s) copied.</pre>
+</div></div>
+</body></html>

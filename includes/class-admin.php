@@ -21,7 +21,7 @@ class WPBR_Admin
 
     public static function menu(): void
     {
-        add_menu_page('Branches', 'Branches', WPBR_CAP_MANAGE, self::SLUG, [self::class, 'render'], 'dashicons-randomize', 59);
+        add_menu_page('Branchline', 'Branchline', WPBR_CAP_MANAGE, self::SLUG, [self::class, 'render'], 'dashicons-randomize', 59);
     }
 
     private static function can_publish(): bool
@@ -188,9 +188,9 @@ class WPBR_Admin
         if (!current_user_can(WPBR_CAP_MANAGE)) return;
         echo '<div class="wrap wpbr">';
         if (!WPBR_Dolt::is_dolt()) {
-            echo '<h1>Branches</h1>';
+            echo '<h1>Branchline</h1>';
             echo '<div class="card"><h2>This site is not on Dolt yet</h2>';
-            echo '<p>Branches needs the database on a Dolt server, which speaks MySQL and adds branching. Moving an existing site takes one command, run from this site:</p>';
+            echo '<p>Branchline needs the database on a Dolt server, which speaks MySQL and adds branching. Moving an existing site takes one command, run from this site:</p>';
             echo '<pre class="wpbr-pre">wp branches import --to=mysql://USER:PASSWORD@DOLT_HOST:3306/' . esc_html(DB_NAME) . ' --branches=stage</pre>';
             echo '<p>It copies every table, checks the row counts, records a baseline snapshot and creates the branches you name. Then point wp-config.php at the Dolt server:</p>';
             echo '<pre class="wpbr-pre">define(\'DB_HOST\', \'DOLT_HOST:3306\');\ndefine(\'DB_NAME\', \'' . esc_html(DB_NAME) . '\');            // production\ndefine(\'DB_NAME\', \'' . esc_html(DB_NAME) . '/stage\');      // on the staging site</pre>';
@@ -237,7 +237,7 @@ class WPBR_Admin
         $d->close();
         $may_rollback = !$is_prod || self::can_publish();
 
-        echo '<h1>Branches ' . self::pill($branch, $is_prod) . '</h1>';
+        echo '<h1>Branchline ' . self::pill($branch, $is_prod) . '</h1>';
         echo '<p class="wpbr-sub">This site reads and writes the <code>' . esc_html($branch) . '</code> branch of database <code>' . esc_html(WPBR_Dolt::base_database()) . '</code>. Production is <code>' . esc_html(WPBR_PRODUCTION_BRANCH) . '</code>.</p>';
 
         // ---- status bar: the numbers that matter and the three things you can do
@@ -390,7 +390,7 @@ class WPBR_Admin
         $can_apply = (bool) $p['incoming'] && empty($p['up_to_date']);
 
         echo '<h1>' . esc_html($titles[$dir]) . ' <span class="wpbr-pill">' . esc_html($source) . ' <span class="wpbr-dim">to</span> ' . esc_html($target) . '</span></h1>';
-        echo '<p class="wpbr-sub"><a href="' . esc_url(self::url()) . '">Back to Branches</a></p>';
+        echo '<p class="wpbr-sub"><a href="' . esc_url(self::url()) . '">Back to Branchline</a></p>';
 
         if (!empty($p['up_to_date'])) {
             echo '<div class="wpbr-banner ok"><strong>Nothing to merge.</strong> <code>' . esc_html($target) . '</code> already contains everything on <code>' . esc_html($source) . '</code>.</div>';

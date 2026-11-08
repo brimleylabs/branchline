@@ -3,7 +3,12 @@
 .wpbr .wpbr-pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;background:#e7ecf3;color:#1d2327;vertical-align:middle}
 .wpbr .wpbr-pill.prod{background:#fbe9ec;color:#8a1c2b}
 .wpbr .wpbr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:18px 0}
-.wpbr .card{background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:16px 18px}
+.wpbr .card{background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:16px 18px;max-width:none;min-width:0}
+.wpbr .card+.card{margin-top:16px}
+.wpbr td.rowactions{white-space:nowrap;text-align:right}
+.wpbr td.rowactions form{display:inline-block;margin-left:6px}
+.wpbr .wpbr-inline{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0}
+.wpbr .card h3{margin:18px 0 8px;font-size:13px;color:#1d2327}
 .wpbr .card h2{margin:0 0 10px;font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:#646970}
 .wpbr .big{font-size:22px;font-weight:600;margin:0 0 6px}
 .wpbr .muted{color:#646970}

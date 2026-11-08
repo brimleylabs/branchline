@@ -70,8 +70,27 @@ references inside block JSON and serialized data stay valid after a merge.
    environments are on different machines or in object storage, hook
    `wpbr_copy_attachment_file` and copy the file your own way.
 
-Developers' machines can hold a clone (`dolt clone`) and push branches to the
-server the way they push code.
+## Laptops and remotes
+
+A remote is where branches are shared: the Dolt server you already run,
+DoltHub or a self-hosted DoltLab, a storage bucket, or a directory. Add it
+once on each environment, from wp-admin or the command line:
+
+    wp branches remote add origin https://doltremoteapi.dolthub.com/acme/site
+    wp branches push
+
+A developer clones the remote (`dolt clone <url>`), works on their own branch,
+commits and pushes it the way they push code. On staging, fetch, track the
+branch and merge it:
+
+    wp branches fetch
+    wp branches track origin/feature-nav
+    wp branches merge feature-nav
+
+The same three steps are buttons in wp-admin under Remotes. Merging a feature
+branch uses the same rules as a pull: structure follows the branch being
+merged in, content stays with the branch receiving it, and editorial clashes
+are shown for a decision.
 
 ## Using it
 
@@ -88,6 +107,8 @@ From the command line, for pipelines:
     wp branches diff
     wp branches pull
     wp branches publish --yes --resolve=wp_posts:3f2a...=merged
+    wp branches merge feature-nav
+    wp branches remote | fetch | push | track origin/feature-nav
 
 ## Filters
 

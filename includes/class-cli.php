@@ -8,6 +8,11 @@
  *   pull [--yes] [--resolve=<key>=<ours|theirs|merged|delete>]...   Merge production into this branch
  *   publish [--yes] [--resolve=...]                                  Merge this branch into production
  *   preview --into=<branch> --from=<branch>   Dry run of any merge, printed as JSON
+ *   merge <branch> [--yes] [--resolve=...]    Merge any local branch into this one
+ *   remote [add <name> <url> | remove <name>] Remotes (another Dolt server, DoltHub, DoltLab, a bucket, a directory)
+ *   fetch [--remote=origin]                   Fetch remote branches
+ *   push [--remote=origin] [--branch=<b>]     Push a branch (default: this one)
+ *   track <remote>/<branch> [--as=<name>]     Create or update a local branch from a remote one
  */
 defined('ABSPATH') || exit;
 
@@ -64,6 +69,79 @@ class WPBR_CLI
         $branch = WPBR_Dolt::current_branch();
         if ($branch === WPBR_PRODUCTION_BRANCH) WP_CLI::error('This is the production branch. Publish runs on a release branch.');
         $this->run_merge(new WPBR_Merge_Engine(WPBR_PRODUCTION_BRANCH, $branch), $assoc);
+    }
+
+    public function merge($args, $assoc): void
+    {
+        $branch = WPBR_Dolt::current_branch();
+        $from = $args[0] ?? '';
+        if ($from === '' || $from === $branch) WP_CLI::error('Give the branch to merge into ' . $branch . '.');
+        $d = new WPBR_Dolt($branch);
+        if (!$d->branch_exists($from)) { $d->close(); WP_CLI::error("No local branch '$from'. Fetch and track it first."); }
+        $d->close();
+        $this->run_merge(new WPBR_Merge_Engine($branch, $from), $assoc);
+    }
+
+    public function remote($args, $assoc): void
+    {
+        $d = new WPBR_Dolt(WPBR_Dolt::current_branch(), false);
+        $op = $args[0] ?? 'list';
+        if ($op === 'add') {
+            if (empty($args[1]) || empty($args[2])) WP_CLI::error('Usage: wp branches remote add <name> <url>');
+            $d->remote_add($args[1], $args[2]);
+            WP_CLI::success("Remote {$args[1]} added.");
+        } elseif ($op === 'remove') {
+            if (empty($args[1])) WP_CLI::error('Usage: wp branches remote remove <name>');
+            $d->remote_remove($args[1]);
+            WP_CLI::success("Remote {$args[1]} removed.");
+        } else {
+            $rows = $d->remotes();
+            if (!$rows) WP_CLI::line('No remotes. Add one: wp branches remote add origin <url>');
+            else WP_CLI\Utils\format_items('table', $rows, ['name', 'url']);
+        }
+        $d->close();
+    }
+
+    public function fetch($args, $assoc): void
+    {
+        $d = new WPBR_Dolt(WPBR_Dolt::current_branch(), false);
+        $remote = $assoc['remote'] ?? 'origin';
+        $d->fetch($remote);
+        $rows = $d->remote_branches();
+        $d->close();
+        WP_CLI::success("Fetched $remote.");
+        WP_CLI\Utils\format_items('table', array_map(fn($r) => ['branch' => $r['name'], 'head' => substr($r['hash'], 0, 8), 'last snapshot' => substr((string) $r['latest_commit_message'], 0, 60)], $rows), ['branch', 'head', 'last snapshot']);
+    }
+
+    public function push($args, $assoc): void
+    {
+        $branch = $assoc['branch'] ?? WPBR_Dolt::current_branch();
+        $d = new WPBR_Dolt($branch, false);
+        $d->snapshot('Snapshot before push (' . $branch . ')');
+        $msg = $d->push($assoc['remote'] ?? 'origin', $branch);
+        $d->close();
+        WP_CLI::success(trim(str_replace('\n', ' ', $msg)) ?: "Pushed $branch.");
+    }
+
+    public function track($args, $assoc): void
+    {
+        $ref = $args[0] ?? '';
+        if (!str_contains($ref, '/')) WP_CLI::error('Give <remote>/<branch>, for example origin/feature-x.');
+        [$remote, $rbranch] = explode('/', preg_replace('#^remotes/#', '', $ref), 2);
+        $local = $assoc['as'] ?? $rbranch;
+        $d = new WPBR_Dolt(WPBR_Dolt::current_branch(), false);
+        $d->fetch($remote);
+        if (!$d->branch_exists($local)) {
+            $d->branch_from($local, "$remote/$rbranch");
+            $d->close();
+            WP_CLI::success("Branch $local created from $remote/$rbranch.");
+            return;
+        }
+        $d->close();
+        $t = new WPBR_Dolt($local, false);
+        $msg = $t->pull_remote($remote, $rbranch);
+        $t->close();
+        WP_CLI::success("Branch $local updated from $remote/$rbranch. " . trim(str_replace('\n', ' ', $msg)));
     }
 
     public function preview($args, $assoc): void

@@ -279,4 +279,65 @@ class WPBR_Dolt
     {
         try { $this->rollback(); } catch (Throwable $e) {}
     }
+
+    // ----------------------------------------------------------------- remotes
+    // A remote is another Dolt server, DoltHub, DoltLab, a bucket or a directory.
+    // Developers clone it to their laptops and push branches back, like git.
+
+    public function remotes(): array
+    {
+        return $this->q('SELECT name, url FROM dolt_remotes ORDER BY name');
+    }
+
+    public function remote_add(string $name, string $url): void
+    {
+        $this->exec('CALL dolt_remote(?, ?, ?)', ['add', $name, $url]);
+        $this->commit();
+    }
+
+    public function remote_remove(string $name): void
+    {
+        $this->exec('CALL dolt_remote(?, ?)', ['remove', $name]);
+        $this->commit();
+    }
+
+    /** Branches known on remotes after the last fetch, as "remotes/<remote>/<branch>". */
+    public function remote_branches(): array
+    {
+        return $this->q('SELECT name, hash, latest_commit_message FROM dolt_remote_branches ORDER BY name');
+    }
+
+    public function fetch(string $remote): void
+    {
+        $this->q('CALL dolt_fetch(?)', [$remote]);
+        $this->commit();
+    }
+
+    /** Push one branch; returns Dolt's message. */
+    public function push(string $remote, string $branch): string
+    {
+        $r = $this->q('CALL dolt_push(?, ?)', [$remote, $branch]);
+        $this->commit();
+        return (string) ($r[0]['message'] ?? '');
+    }
+
+    public function branch_exists(string $name): bool
+    {
+        return (bool) $this->var('SELECT 1 FROM dolt_branches WHERE name = ?', [$name]);
+    }
+
+    /** Create a local branch from any ref ("origin/feature", a hash, another branch). */
+    public function branch_from(string $name, string $ref): void
+    {
+        $this->exec('CALL dolt_branch(?, ?)', [$name, $ref]);
+        $this->commit();
+    }
+
+    /** Fast-forward this connection's branch to a remote branch (pull on an unchanged local branch). */
+    public function pull_remote(string $remote, string $branch): string
+    {
+        $r = $this->q('CALL dolt_pull(?, ?)', [$remote, $branch]);
+        $this->commit();
+        return (string) ($r[0]['message'] ?? '');
+    }
 }

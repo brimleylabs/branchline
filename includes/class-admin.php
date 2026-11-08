@@ -14,6 +14,7 @@ class WPBR_Admin
         add_action('admin_enqueue_scripts', [self::class, 'assets']);
         add_action('admin_post_wpbr_snapshot', [self::class, 'handle_snapshot']);
         add_action('admin_post_wpbr_apply', [self::class, 'handle_apply']);
+        add_action('admin_post_wpbr_remote', [self::class, 'handle_remote']);
         add_action('admin_bar_menu', [self::class, 'admin_bar'], 100);
     }
 
@@ -87,6 +88,69 @@ class WPBR_Admin
         exit;
     }
 
+    /** Remote operations: add, remove, fetch, push, track. */
+    public static function handle_remote(): void
+    {
+        check_admin_referer('wpbr_remote');
+        if (!current_user_can('manage_options')) wp_die('Not allowed.');
+        $op     = sanitize_text_field(wp_unslash($_POST['op'] ?? ''));
+        $name   = sanitize_text_field(wp_unslash($_POST['name'] ?? 'origin'));
+        $branch = WPBR_Dolt::current_branch();
+        try {
+            $d = new WPBR_Dolt($branch, false);
+            switch ($op) {
+                case 'add':
+                    $url = trim((string) wp_unslash($_POST['url'] ?? ''));
+                    if ($name === '' || $url === '') throw new RuntimeException('A remote needs a name and a URL.');
+                    $d->remote_add($name, $url);
+                    $msg = "Remote $name added.";
+                    break;
+                case 'remove':
+                    $d->remote_remove($name);
+                    $msg = "Remote $name removed.";
+                    break;
+                case 'fetch':
+                    $d->fetch($name);
+                    $msg = "Fetched $name. Remote branches are listed below.";
+                    break;
+                case 'push':
+                    $d->snapshot('Snapshot before push (' . $branch . ')');
+                    $out = $d->push($name, $branch);
+                    $msg = "Pushed $branch to $name. " . trim(str_replace('\n', ' ', $out));
+                    break;
+                case 'track':
+                    $ref = preg_replace('#^remotes/#', '', sanitize_text_field(wp_unslash($_POST['ref'] ?? '')));
+                    if (!str_contains($ref, '/')) throw new RuntimeException('Pick a remote branch.');
+                    [$remote, $rbranch] = explode('/', $ref, 2);
+                    if (!$d->branch_exists($rbranch)) {
+                        $d->branch_from($rbranch, $ref);
+                        $msg = "Branch $rbranch created from $ref. You can merge it into $branch now.";
+                    } else {
+                        $t = new WPBR_Dolt($rbranch, false);
+                        $out = $t->pull_remote($remote, $rbranch);
+                        $t->close();
+                        $msg = "Branch $rbranch updated from $ref. " . trim(str_replace('\n', ' ', $out));
+                    }
+                    break;
+                default:
+                    throw new RuntimeException('Unknown remote operation.');
+            }
+            $d->close();
+        } catch (Throwable $e) {
+            $msg = 'Remote operation failed: ' . $e->getMessage();
+        }
+        wp_safe_redirect(self::url(['notice' => rawurlencode($msg)]));
+        exit;
+    }
+
+    private static function remote_form(string $op, array $fields, string $label, string $class = 'button'): string
+    {
+        $h = '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline">' . wp_nonce_field('wpbr_remote', '_wpnonce', true, false);
+        $h .= '<input type="hidden" name="action" value="wpbr_remote"><input type="hidden" name="op" value="' . esc_attr($op) . '">';
+        foreach ($fields as $k => $v) $h .= '<input type="hidden" name="' . esc_attr($k) . '" value="' . esc_attr($v) . '">';
+        return $h . '<button class="' . esc_attr($class) . '">' . esc_html($label) . '</button></form>';
+    }
+
     // ------------------------------------------------------------------- screens
 
     public static function render(): void
@@ -128,6 +192,8 @@ class WPBR_Admin
             $ahead  = WPBR_Merge_Engine::total(WPBR_Merge_Engine::summarize($d, $cls, $base, $branch, 0));
             $behind = WPBR_Merge_Engine::total(WPBR_Merge_Engine::summarize($d, $cls, $base, WPBR_PRODUCTION_BRANCH, 0));
         }
+        $remotes = $d->remotes();
+        $remote_branches = $remotes ? $d->remote_branches() : [];
         $d->close();
 
         echo '<h1>Branches <span class="wpbr-pill' . ($is_prod ? ' prod' : '') . '">' . esc_html($branch) . ($is_prod ? ' · production' : '') . '</span></h1>';
@@ -150,11 +216,48 @@ class WPBR_Admin
             echo '<div class="card"><h2>Production</h2><p class="muted">Pull and publish run from a release branch. Open the staging site to merge.</p></div>';
         }
 
-        echo '<div class="card"><h2>Branches</h2><table class="wpbr-table"><tr><th>Name</th><th>Head</th><th>Last snapshot</th></tr>';
+        echo '<div class="card"><h2>Branches</h2><table class="wpbr-table"><tr><th>Name</th><th>Head</th><th>Last snapshot</th><th></th></tr>';
         foreach ($branches as $b) {
-            echo '<tr><td>' . esc_html($b['name']) . ($b['name'] === $branch ? ' <span class="wpbr-pill">this site</span>' : '') . '</td><td><code>' . esc_html(substr($b['hash'], 0, 8)) . '</code></td><td>' . esc_html(mb_strimwidth((string) $b['latest_commit_message'], 0, 60, '…')) . '</td></tr>';
+            $action = '';
+            if ($b['name'] !== $branch && $b['name'] !== WPBR_PRODUCTION_BRANCH) {
+                $action = '<a class="button button-small" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'merge', 'from' => $b['name']])) . '">Merge into ' . esc_html($branch) . '</a>';
+            }
+            echo '<tr><td>' . esc_html($b['name']) . ($b['name'] === $branch ? ' <span class="wpbr-pill">this site</span>' : '') . '</td><td><code>' . esc_html(substr($b['hash'], 0, 8)) . '</code></td><td>' . esc_html(mb_strimwidth((string) $b['latest_commit_message'], 0, 60, '…')) . '</td><td>' . $action . '</td></tr>';
         }
         echo '</table></div></div>';
+
+        // Remotes: where laptops clone from and push to.
+        echo '<div class="card"><h2>Remotes</h2>';
+        echo '<p class="muted">A remote is another Dolt server, DoltHub, DoltLab, a storage bucket or a directory. Developers clone it, work on their own branch, and push it back. Fetch here, then track the branch and merge it into <code>' . esc_html($branch) . '</code>.</p>';
+        if ($remotes) {
+            echo '<table class="wpbr-table"><tr><th>Name</th><th>URL</th><th></th></tr>';
+            foreach ($remotes as $r) {
+                echo '<tr><td>' . esc_html($r['name']) . '</td><td><code>' . esc_html($r['url']) . '</code></td><td class="rowactions">';
+                echo self::remote_form('fetch', ['name' => $r['name']], 'Fetch') . ' ';
+                echo self::remote_form('push', ['name' => $r['name']], 'Push ' . $branch) . ' ';
+                echo self::remote_form('remove', ['name' => $r['name']], 'Remove', 'button button-link-delete');
+                echo '</td></tr>';
+            }
+            echo '</table>';
+        }
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wpbr-inline">' . wp_nonce_field('wpbr_remote', '_wpnonce', true, false) . '<input type="hidden" name="action" value="wpbr_remote"><input type="hidden" name="op" value="add">';
+        echo '<input type="text" name="name" placeholder="origin" value="' . ($remotes ? '' : 'origin') . '" style="width:120px"> <input type="text" name="url" placeholder="https://doltremoteapi.dolthub.com/org/db or file:///path or aws://bucket" style="width:420px"> <button class="button">Add remote</button></form>';
+        if ($remote_branches) {
+            echo '<h3>Remote branches</h3><table class="wpbr-table"><tr><th>Branch</th><th>Head</th><th>Last snapshot</th><th></th></tr>';
+            $local = array_column($branches, 'hash', 'name');
+            foreach ($remote_branches as $rb) {
+                $short = preg_replace('#^remotes/[^/]+/#', '', $rb['name']);
+                $state = !isset($local[$short]) ? 'not tracked yet' : ($local[$short] === $rb['hash'] ? 'up to date' : 'differs from local');
+                if ($short === $branch && $state === 'differs from local') $state = 'this site has newer snapshots; push to update the remote';
+                $can_track = $state === 'not tracked yet' || $state === 'differs from local';
+                echo '<tr><td><code>' . esc_html($rb['name']) . '</code></td><td><code>' . esc_html(substr($rb['hash'], 0, 8)) . '</code></td><td>' . esc_html(mb_strimwidth((string) $rb['latest_commit_message'], 0, 50, '…')) . '</td>';
+                echo '<td><span class="muted">' . esc_html($state) . '</span> ' . ($can_track ? self::remote_form('track', ['ref' => $rb['name']], isset($local[$short]) ? 'Update ' . $short : 'Track as ' . $short, 'button button-small') : '') . '</td></tr>';
+            }
+            echo '</table>';
+        } elseif ($remotes) {
+            echo '<p class="muted">Fetch to see remote branches.</p>';
+        }
+        echo '</div>';
 
         echo '<div class="card"><h2>Recent snapshots on ' . esc_html($branch) . '</h2><ul class="log">';
         foreach ($log as $c) {
@@ -166,16 +269,33 @@ class WPBR_Admin
     private static function review(): void
     {
         $branch = WPBR_Dolt::current_branch();
-        $dir = ($_GET['dir'] ?? 'publish') === 'pull' ? 'pull' : 'publish';
-        if ($branch === WPBR_PRODUCTION_BRANCH) {
-            echo '<h1>Branches</h1><div class="notice notice-error"><p>Pull and publish run from a release branch.</p></div>';
-            return;
+        $dir = sanitize_text_field(wp_unslash($_GET['dir'] ?? 'publish'));
+        if (!in_array($dir, ['pull', 'publish', 'merge'], true)) $dir = 'publish';
+        if ($dir === 'merge') {
+            // Any other local branch (a developer's feature branch, say) into this one.
+            $from = sanitize_text_field(wp_unslash($_GET['from'] ?? ''));
+            $d = new WPBR_Dolt($branch);
+            $ok = $from !== '' && $from !== $branch && $d->branch_exists($from);
+            $d->close();
+            if (!$ok) {
+                echo '<h1>Branches</h1><div class="notice notice-error"><p>Pick an existing branch to merge into ' . esc_html($branch) . '.</p></div>';
+                return;
+            }
+            [$target, $source] = [$branch, $from];
+        } else {
+            if ($branch === WPBR_PRODUCTION_BRANCH) {
+                echo '<h1>Branches</h1><div class="notice notice-error"><p>Pull and publish run from a release branch.</p></div>';
+                return;
+            }
+            [$target, $source] = $dir === 'pull' ? [$branch, WPBR_PRODUCTION_BRANCH] : [WPBR_PRODUCTION_BRANCH, $branch];
         }
-        [$target, $source] = $dir === 'pull' ? [$branch, WPBR_PRODUCTION_BRANCH] : [WPBR_PRODUCTION_BRANCH, $branch];
         $engine = new WPBR_Merge_Engine($target, $source);
         $p = $engine->preview();
+        $titles = ['pull' => 'Pull from production', 'publish' => 'Publish to production', 'merge' => 'Merge ' . $source . ' into ' . $target];
+        // Which side wins a clashing editorial field when "Combine" is chosen.
+        $combine_winner = in_array(WPBR_PRODUCTION_BRANCH, [$source, $target], true) ? 'production' : $target;
 
-        echo '<h1>' . ($dir === 'pull' ? 'Pull from production' : 'Publish to production') . ' <span class="wpbr-pill">' . esc_html($source) . ' → ' . esc_html($target) . '</span></h1>';
+        echo '<h1>' . esc_html($titles[$dir]) . ' <span class="wpbr-pill">' . esc_html($source) . ' → ' . esc_html($target) . '</span></h1>';
         echo '<p class="muted"><a href="' . esc_url(self::url()) . '">← Back</a></p>';
 
         if (!empty($p['up_to_date'])) {
@@ -231,7 +351,7 @@ class WPBR_Admin
                 echo '<div class="choices"><label><input type="radio" name="decision[' . $k . ']" value="ours" required> Keep ' . esc_html($target) . '</label>';
                 echo '<label><input type="radio" name="decision[' . $k . ']" value="theirs"> Take ' . esc_html($source) . '</label>';
                 if (!empty($h['merged']) && $h['kind'] === 'conflict') {
-                    echo '<label><input type="radio" name="decision[' . $k . ']" value="merged" checked> Combine (production wins the clashing fields)</label>';
+                    echo '<label><input type="radio" name="decision[' . $k . ']" value="merged" checked> Combine (' . esc_html($combine_winner) . ' wins the clashing fields)</label>';
                 }
                 echo '</div></div>';
             }
@@ -240,7 +360,8 @@ class WPBR_Admin
         }
 
         echo '<p><input type="text" name="message" class="regular-text" placeholder="Snapshot message for this merge" style="width:420px"></p>';
-        echo '<p><button class="button button-primary button-hero"' . (!$p['incoming'] ? ' disabled' : '') . '>' . ($dir === 'pull' ? 'Apply: pull into ' : 'Apply: publish to ') . esc_html($target) . '</button></p></form>';
+        $verb = ['pull' => 'Apply: pull into ', 'publish' => 'Apply: publish to ', 'merge' => 'Apply: merge into '][$dir];
+        echo '<p><button class="button button-primary button-hero"' . (!$p['incoming'] ? ' disabled' : '') . '>' . esc_html($verb . $target) . '</button></p></form>';
     }
 
     private static function class_tag(string $class): string

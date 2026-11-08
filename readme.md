@@ -22,7 +22,7 @@ Start with [docs/getting-started.md](docs/getting-started.md). The full set:
 | [Workflows](docs/workflows.md) | Release day, hotfix, laptops, several releases, rollback |
 | [Command line](docs/cli.md) | Every command and what it prints |
 | [Configuration](docs/configuration.md) | Constants, capabilities, filters |
-| [For automation and agents](docs/for-agents.md) | The safe loop, resolving by key, the skill file |
+| [For automation and agents](docs/for-agents.md) | The safe loop, resolving by key, instructions to give your agent |
 | [Troubleshooting](docs/troubleshooting.md) | Messages and what to do, and how to leave |
 
 ## Quick start for an existing site

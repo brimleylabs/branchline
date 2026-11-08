@@ -23,9 +23,10 @@ class WPBR_Import {
 
 	/** mysql://user:pass@host:3306/dbname (pass and port optional). */
 	public static function parse_dsn( string $dsn ): array {
-		$p = parse_url( $dsn );
+		$p = wp_parse_url( $dsn );
 		if ( ! $p || empty( $p['host'] ) || empty( $p['path'] ) ) {
-			throw new InvalidArgumentException( 'Expected mysql://user:password@host:port/database, got ' . $dsn );
+			/* translators: %s: the value given */
+			throw new InvalidArgumentException( sprintf( __( 'Expected mysql://user:password@host:port/database, got %s', 'branchline' ), $dsn ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- this class only runs under WP-CLI; messages go to the terminal.
 		}
 		return array(
 			'host' => $p['host'],
@@ -58,8 +59,16 @@ class WPBR_Import {
 	private static function connect( array $c, string $what, bool $select_db = true ): mysqli {
 		$m = mysqli_init();
 		$m->options( MYSQLI_OPT_CONNECT_TIMEOUT, 15 );
-		if ( ! @$m->real_connect( $c['host'], $c['user'], $c['pass'], $select_db ? $c['db'] : null, $c['port'] ) ) {
-			throw new RuntimeException( "Could not connect to the $what ({$c['host']}:{$c['port']}): " . $m->connect_error );
+		$err = '';
+		try {
+			$ok = $m->real_connect( $c['host'], $c['user'], $c['pass'], $select_db ? $c['db'] : null, $c['port'] );
+		} catch ( mysqli_sql_exception $e ) {
+			$ok  = false;
+			$err = $e->getMessage();
+		}
+		if ( ! $ok ) {
+			/* translators: 1: "source" or "target", 2: host, 3: port, 4: error message */
+			throw new RuntimeException( sprintf( __( 'Could not connect to the %1$s (%2$s:%3$d): %4$s', 'branchline' ), $what, $c['host'], $c['port'], $m->connect_error ?: $err ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- WP-CLI only; messages go to the terminal.
 		}
 		$m->set_charset( 'utf8mb4' );
 		return $m;
@@ -105,7 +114,8 @@ class WPBR_Import {
 		$this->dst->select_db( $this->dst_db );
 		$existing = $this->target_has_tables();
 		if ( $existing && ! $replace ) {
-			throw new RuntimeException( 'The target database already has ' . count( $existing ) . ' table(s). Use --replace to drop and reload them.' );
+			/* translators: %d: number of tables */
+			throw new RuntimeException( sprintf( _n( 'The target database already has %d table. Use --replace to drop and reload it.', 'The target database already has %d tables. Use --replace to drop and reload them.', count( $existing ), 'branchline' ), count( $existing ) ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- WP-CLI only; messages go to the terminal.
 		}
 		$this->dst->query( 'SET FOREIGN_KEY_CHECKS = 0' );
 		$this->dst->query( 'SET UNIQUE_CHECKS = 0' );
@@ -113,7 +123,8 @@ class WPBR_Import {
 		foreach ( $plan as $p ) {
 			$t = $p['table'];
 			$q = '`' . str_replace( '`', '``', $t ) . '`';
-			$log( sprintf( '%-40s %8d rows', $t, $p['rows'] ) );
+			/* translators: 1: table name, 2: number of rows */
+			$log( sprintf( __( '%1$-40s %2$8d rows', 'branchline' ), $t, $p['rows'] ) );
 			if ( in_array( $t, $existing, true ) ) {
 				$this->dst->query( "DROP TABLE IF EXISTS $q" );
 			}
@@ -128,26 +139,31 @@ class WPBR_Import {
 				'ok'     => $got === $p['rows'],
 			);
 			if ( $got !== $p['rows'] ) {
-				$log( "  MISMATCH: source {$p['rows']}, target $got" );
+				/* translators: 1: rows on the source, 2: rows on the target */
+				$log( sprintf( __( '  MISMATCH: source %1$d, target %2$d', 'branchline' ), $p['rows'], $got ) );
 			}
 		}
 		$this->dst->query( 'SET FOREIGN_KEY_CHECKS = 1' );
 		$this->dst->query( 'SET UNIQUE_CHECKS = 1' );
 
 		// Baseline snapshot and branches.
-		$msg = 'Imported from ' . $this->from['host'] . '/' . $this->from['db'] . ' on ' . gmdate( 'Y-m-d H:i' ) . ' UTC';
+		/* translators: 1: source host, 2: source database, 3: date and time in UTC */
+		$msg = sprintf( __( 'Imported from %1$s/%2$s on %3$s UTC', 'branchline' ), $this->from['host'], $this->from['db'], gmdate( 'Y-m-d H:i' ) );
 		if ( ! $this->dst->query( "CALL dolt_commit('-A', '-m', '" . $this->dst->real_escape_string( $msg ) . "')" ) ) {
-			throw new RuntimeException( 'Baseline snapshot failed: ' . $this->dst->error );
+			/* translators: %s: database error */
+			throw new RuntimeException( sprintf( __( 'Baseline snapshot failed: %s', 'branchline' ), $this->dst->error ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- WP-CLI only; messages go to the terminal.
 		}
 		$head = $this->dst->query( 'SELECT hash FROM dolt_branches WHERE name = active_branch()' )->fetch_row()[0] ?? '';
-		$log( 'Baseline snapshot ' . substr( $head, 0, 8 ) );
+		/* translators: %s: short snapshot hash */
+		$log( sprintf( __( 'Baseline snapshot %s', 'branchline' ), substr( $head, 0, 8 ) ) );
 		foreach ( $branches as $b ) {
 			$b = trim( $b );
 			if ( $b === '' ) {
 				continue;
 			}
 			$this->dst->query( "CALL dolt_branch('" . $this->dst->real_escape_string( $b ) . "')" );
-			$log( "Branch $b created" );
+			/* translators: %s: branch name */
+			$log( sprintf( __( 'Branch %s created', 'branchline' ), $b ) );
 		}
 		return $results;
 	}
@@ -171,7 +187,8 @@ class WPBR_Import {
 			// Last resort: drop every table option after the closing parenthesis.
 			$bare = preg_replace( '/\)\s*ENGINE=.*$/is', ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4', $ddl );
 			if ( ! $this->dst->query( $bare ) ) {
-				throw new RuntimeException( "Could not create $t on the target: " . $this->dst->error . "\n$ddl" );
+				/* translators: 1: table name, 2: database error, 3: the CREATE TABLE statement */
+				throw new RuntimeException( sprintf( __( 'Could not create %1$s on the target: %2$s', 'branchline' ), $t, $this->dst->error ) . "\n" . $ddl ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- WP-CLI only; messages go to the terminal.
 			}
 		}
 	}
@@ -180,7 +197,8 @@ class WPBR_Import {
 		$q   = '`' . str_replace( '`', '``', $t ) . '`';
 		$res = $this->src->query( "SELECT * FROM $q", MYSQLI_USE_RESULT );
 		if ( ! $res ) {
-			throw new RuntimeException( "Could not read $t: " . $this->src->error );
+			/* translators: 1: table name, 2: database error */
+			throw new RuntimeException( sprintf( __( 'Could not read %1$s: %2$s', 'branchline' ), $t, $this->src->error ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- WP-CLI only; messages go to the terminal.
 		}
 		$fields = $res->fetch_fields();
 		$cols   = implode( ', ', array_map( fn( $f ) => '`' . str_replace( '`', '``', $f->name ) . '`', $fields ) );
@@ -195,12 +213,14 @@ class WPBR_Import {
 				return;
 			}
 			if ( ! $this->dst->query( "INSERT INTO $q ($cols) VALUES " . implode( ',', $values ) ) ) {
-				throw new RuntimeException( "Insert into $t failed: " . $this->dst->error );
+				/* translators: 1: table name, 2: database error */
+				throw new RuntimeException( sprintf( __( 'Insert into %1$s failed: %2$s', 'branchline' ), $t, $this->dst->error ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- WP-CLI only; messages go to the terminal.
 			}
 			$n     += count( $values );
 			$values = array();
 		};
-		while ( $row = $res->fetch_row() ) {
+		$row    = $res->fetch_row();
+		while ( $row ) {
 			$vals = array();
 			foreach ( $row as $i => $v ) {
 				if ( $v === null ) {
@@ -215,9 +235,11 @@ class WPBR_Import {
 			if ( count( $values ) >= $batch ) {
 				$flush();
 				if ( $n % ( $batch * 20 ) === 0 ) {
-					$log( "  $n rows" );
+					/* translators: %d: number of rows copied so far */
+					$log( sprintf( __( '  %d rows', 'branchline' ), $n ) );
 				}
 			}
+			$row = $res->fetch_row();
 		}
 		$flush();
 		$res->free();
@@ -225,7 +247,13 @@ class WPBR_Import {
 	}
 
 	public function close(): void {
-		@$this->src->close();
-		@$this->dst->close();
+		foreach ( array( $this->src, $this->dst ) as $m ) {
+			try {
+				$m->close();
+			} catch ( Throwable $e ) {
+				// Already closed. Nothing to do.
+				continue;
+			}
+		}
 	}
 }

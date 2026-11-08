@@ -1,0 +1,42 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    name: Unit tests, PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.1', '8.2', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysqli, mbstring
+          coverage: none
+      - name: Syntax check
+        run: for f in wp-branches.php uninstall.php includes/*.php; do php -l "$f"; done
+      - name: Unit tests
+        run: php tests/unit.php
+
+  standards:
+    name: Coding standards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer
+      - name: Install WordPress coding standards
+        run: |
+          composer global config allow-plugins.dealerdirect/phpcodesniffer-composer-installer true
+          composer global require --no-interaction wp-coding-standards/wpcs:^3.1 phpcompatibility/phpcompatibility-wp:^2.1 dealerdirect/phpcodesniffer-composer-installer:^1.0
+      - name: phpcs
+        run: ~/.composer/vendor/bin/phpcs || ~/.config/composer/vendor/bin/phpcs

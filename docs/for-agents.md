@@ -58,6 +58,20 @@ When escalating, pass along, for each item in `human[]`: `label`, `reason`, the 
 - Do not edit the `dolt_conflicts_*` tables directly. Use the commands.
 - Do not push to a remote branch another agent or person is working on. Push your own branch.
 
-## Skill file
+## Teaching your agent
 
-The plugin ships `skills/branchline/SKILL.md`, a skill a coding agent can load to learn this workflow. Copy it into your agent's skills directory or point your agent at it.
+Whatever tool you use, the instructions below are enough for a coding agent to operate Branchline safely. Paste them into the agent's project instructions, a rules file, or whatever your tool reads at the start of a task.
+
+> **Branchline.** This site's database is version controlled. Every environment is a branch and you get your own.
+>
+> Before changing anything, run `wp branchline status`. If the first line says `(production)`, stop and make a branch. Make a branch for your task from staging with `CALL dolt_branch('task-<id>', 'stage')` on the Dolt server, point the install you work in at it by setting `DB_NAME` to `database/task-<id>`, then work normally. When done, run `wp branchline snapshot --message="<what you did>"`.
+>
+> To merge your work into staging, run `wp branchline preview --into=stage --from=task-<id>` from the staging install and read the JSON. If `human` is empty, run `wp branchline merge task-<id> --yes --message="<message>"`. If it is not, decide each item from `label`, `reason`, `clashes`, `ours`, `theirs` and `merged`, then pass one `--resolve=<key>=<choice>` per item. `merged` is right when both sides made legitimate edits to different parts of a page. Escalate to a person when the clash is a duplicate user, or when both sides rewrote the same field.
+>
+> Publish to production only when instructed: `wp branchline pull --yes` first, then `wp branchline publish --yes --message="<release>"`.
+>
+> To undo, `wp branchline log` then `wp branchline rollback <hash>`. The head you leave is saved as a tag. Never roll production back without instruction.
+>
+> The merge applies these rules on its own: settings, menus, templates and global styles follow the release side; posts, comments, users, orders and plugin tables follow production; pages merge field by field; transients, cron, locks and sessions are ignored; serialized PHP and JSON merge key by key.
+>
+> Never work on the production branch or the shared staging branch directly, never edit `dolt_conflicts_*` tables by hand, and never resolve a duplicate user automatically.

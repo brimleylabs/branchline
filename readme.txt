@@ -111,7 +111,7 @@ Add a remote, which can be your Dolt server, DoltHub, a self-hosted DoltLab, a s
 
 = Can an automated pipeline or an AI agent drive it? =
 
-Yes. Every command has non-interactive flags, the preview prints JSON, clashes have stable keys that can be resolved by flag, and the plugin ships a skill file that teaches a coding agent the workflow.
+Yes. Every command has non-interactive flags, the preview prints JSON, clashes have stable keys that can be resolved by flag, and the documentation includes a page written for pipelines and coding agents, with instructions you can paste into whatever tool you use.
 
 == Screenshots ==
 

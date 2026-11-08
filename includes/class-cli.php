@@ -1,6 +1,6 @@
 <?php
 /**
- * wp branches <command>
+ * wp branchline <command>
  *
  *   status                      Branch, uncommitted changes, recent snapshots
  *   snapshot [--message=<m>]    Record the working set as a commit
@@ -18,32 +18,43 @@
  */
 defined( 'ABSPATH' ) || exit;
 
+// phpcs:disable Generic.CodeAnalysis.UnusedFunctionParameter -- WP-CLI hands ($args, $assoc) to every command whether it needs them or not.
+
 class WPBR_CLI {
 
 	public function status( $args, $assoc ): void {
 		$branch = WPBR_Dolt::current_branch();
 		$d      = new WPBR_Dolt( $branch );
-		WP_CLI::line( 'Branch:      ' . $branch . ( $branch === WPBR_PRODUCTION_BRANCH ? ' (production)' : '' ) );
-		WP_CLI::line( 'Production:  ' . WPBR_PRODUCTION_BRANCH );
-		WP_CLI::line( 'Head:        ' . $d->head_hash() );
+		/* translators: %s: branch name */
+		WP_CLI::line( sprintf( __( 'Branch:      %s', 'branchline' ), $branch . ( $branch === WPBR_PRODUCTION_BRANCH ? ' ' . __( '(production)', 'branchline' ) : '' ) ) );
+		/* translators: %s: production branch name */
+		WP_CLI::line( sprintf( __( 'Production:  %s', 'branchline' ), WPBR_PRODUCTION_BRANCH ) );
+		/* translators: %s: snapshot hash */
+		WP_CLI::line( sprintf( __( 'Head:        %s', 'branchline' ), $d->head_hash() ) );
 		$st = $d->status();
-		WP_CLI::line( 'Uncommitted: ' . ( count( $st ) ? count( $st ) . ' table(s): ' . implode( ', ', array_column( $st, 'table_name' ) ) : 'none' ) );
-		WP_CLI::line( 'Recent snapshots:' );
+		if ( count( $st ) ) {
+			/* translators: 1: number of tables, 2: comma-separated table names */
+			WP_CLI::line( sprintf( _n( 'Uncommitted: %1$d table: %2$s', 'Uncommitted: %1$d tables: %2$s', count( $st ), 'branchline' ), count( $st ), implode( ', ', array_column( $st, 'table_name' ) ) ) );
+		} else {
+			WP_CLI::line( __( 'Uncommitted: none', 'branchline' ) );
+		}
+		WP_CLI::line( __( 'Recent snapshots:', 'branchline' ) );
 		foreach ( $d->log( 5 ) as $c ) {
 			WP_CLI::line( sprintf( '  %s  %s  %s', substr( $c['commit_hash'], 0, 8 ), substr( $c['date'], 0, 16 ), $c['message'] ) );
 		}
-		WP_CLI::line( 'Branches:' );
+		WP_CLI::line( __( 'Branches:', 'branchline' ) );
 		foreach ( $d->branches() as $b ) {
-			WP_CLI::line( sprintf( '  %-12s %s  %s', $b['name'], substr( $b['hash'], 0, 8 ), substr( (string) $b['latest_commit_message'], 0, 60 ) ) );
+			WP_CLI::line( sprintf( '  %-12s %s  %s', $b['name'], substr( $b['hash'], 0, 8 ), (string) $b['latest_commit_message'] ) );
 		}
 		$d->close();
 	}
 
 	public function snapshot( $args, $assoc ): void {
 		$d    = new WPBR_Dolt( WPBR_Dolt::current_branch(), false );
-		$hash = $d->snapshot( $assoc['message'] ?? 'Snapshot via wp-cli' );
+		$hash = $d->snapshot( $assoc['message'] ?? __( 'Snapshot via wp-cli', 'branchline' ) );
 		$d->close();
-		WP_CLI::success( $hash ? "Snapshot $hash" : 'Nothing to snapshot.' );
+		/* translators: %s: snapshot hash */
+		WP_CLI::success( $hash ? sprintf( __( 'Snapshot %s', 'branchline' ), $hash ) : __( 'Nothing to snapshot.', 'branchline' ) );
 	}
 
 	public function diff( $args, $assoc ): void {
@@ -71,7 +82,7 @@ class WPBR_CLI {
 	public function pull( $args, $assoc ): void {
 		$branch = WPBR_Dolt::current_branch();
 		if ( $branch === WPBR_PRODUCTION_BRANCH ) {
-			WP_CLI::error( 'This is the production branch. Pull runs on a release branch.' );
+			WP_CLI::error( __( 'This is the production branch. Pull runs on a release branch.', 'branchline' ) );
 		}
 		$this->run_merge( new WPBR_Merge_Engine( $branch, WPBR_PRODUCTION_BRANCH ), $assoc );
 	}
@@ -79,7 +90,7 @@ class WPBR_CLI {
 	public function publish( $args, $assoc ): void {
 		$branch = WPBR_Dolt::current_branch();
 		if ( $branch === WPBR_PRODUCTION_BRANCH ) {
-			WP_CLI::error( 'This is the production branch. Publish runs on a release branch.' );
+			WP_CLI::error( __( 'This is the production branch. Publish runs on a release branch.', 'branchline' ) );
 		}
 		$this->run_merge( new WPBR_Merge_Engine( WPBR_PRODUCTION_BRANCH, $branch ), $assoc );
 	}
@@ -88,12 +99,15 @@ class WPBR_CLI {
 		$branch = WPBR_Dolt::current_branch();
 		$from   = $args[0] ?? '';
 		if ( $from === '' || $from === $branch ) {
-			WP_CLI::error( 'Give the branch to merge into ' . $branch . '.' );
+			/* translators: %s: this site's branch name */
+			WP_CLI::error( sprintf( __( 'Give the branch to merge into %s.', 'branchline' ), $branch ) );
 		}
 		$d = new WPBR_Dolt( $branch );
 		if ( ! $d->branch_exists( $from ) ) {
 			$d->close();
-			WP_CLI::error( "No local branch '$from'. Fetch and track it first." ); }
+			/* translators: %s: branch name */
+			WP_CLI::error( sprintf( __( 'No local branch "%s". Fetch and track it first.', 'branchline' ), $from ) );
+		}
 		$d->close();
 		$this->run_merge( new WPBR_Merge_Engine( $branch, $from ), $assoc );
 	}
@@ -103,20 +117,22 @@ class WPBR_CLI {
 		$op = $args[0] ?? 'list';
 		if ( $op === 'add' ) {
 			if ( empty( $args[1] ) || empty( $args[2] ) ) {
-				WP_CLI::error( 'Usage: wp branches remote add <name> <url>' );
+				WP_CLI::error( __( 'Usage: wp branchline remote add <name> <url>', 'branchline' ) );
 			}
 			$d->remote_add( $args[1], $args[2] );
-			WP_CLI::success( "Remote {$args[1]} added." );
+			/* translators: %s: remote name */
+			WP_CLI::success( sprintf( __( 'Remote %s added.', 'branchline' ), $args[1] ) );
 		} elseif ( $op === 'remove' ) {
 			if ( empty( $args[1] ) ) {
-				WP_CLI::error( 'Usage: wp branches remote remove <name>' );
+				WP_CLI::error( __( 'Usage: wp branchline remote remove <name>', 'branchline' ) );
 			}
 			$d->remote_remove( $args[1] );
-			WP_CLI::success( "Remote {$args[1]} removed." );
+			/* translators: %s: remote name */
+			WP_CLI::success( sprintf( __( 'Remote %s removed.', 'branchline' ), $args[1] ) );
 		} else {
 			$rows = $d->remotes();
 			if ( ! $rows ) {
-				WP_CLI::line( 'No remotes. Add one: wp branches remote add origin <url>' );
+				WP_CLI::line( __( 'No remotes. Add one: wp branchline remote add origin <url>', 'branchline' ) );
 			} else {
 				WP_CLI\Utils\format_items( 'table', $rows, array( 'name', 'url' ) );
 			}
@@ -130,14 +146,15 @@ class WPBR_CLI {
 		$d->fetch( $remote );
 		$rows = $d->remote_branches();
 		$d->close();
-		WP_CLI::success( "Fetched $remote." );
+		/* translators: %s: remote name */
+		WP_CLI::success( sprintf( __( 'Fetched %s.', 'branchline' ), $remote ) );
 		WP_CLI\Utils\format_items(
 			'table',
 			array_map(
 				fn( $r ) => array(
 					'branch'        => $r['name'],
 					'head'          => substr( $r['hash'], 0, 8 ),
-					'last snapshot' => substr( (string) $r['latest_commit_message'], 0, 60 ),
+					'last snapshot' => (string) $r['latest_commit_message'],
 				),
 				$rows
 			),
@@ -148,16 +165,18 @@ class WPBR_CLI {
 	public function push( $args, $assoc ): void {
 		$branch = $assoc['branch'] ?? WPBR_Dolt::current_branch();
 		$d      = new WPBR_Dolt( $branch, false );
-		$d->snapshot( 'Snapshot before push (' . $branch . ')' );
+		/* translators: %s: branch name */
+		$d->snapshot( sprintf( __( 'Snapshot before push (%s)', 'branchline' ), $branch ) );
 		$msg = $d->push( $assoc['remote'] ?? 'origin', $branch );
 		$d->close();
-		WP_CLI::success( trim( str_replace( '\n', ' ', $msg ) ) ?: "Pushed $branch." );
+		/* translators: %s: branch name */
+		WP_CLI::success( trim( str_replace( '\n', ' ', $msg ) ) ?: sprintf( __( 'Pushed %s.', 'branchline' ), $branch ) );
 	}
 
 	public function track( $args, $assoc ): void {
 		$ref = $args[0] ?? '';
 		if ( ! str_contains( $ref, '/' ) ) {
-			WP_CLI::error( 'Give <remote>/<branch>, for example origin/feature-x.' );
+			WP_CLI::error( __( 'Give <remote>/<branch>, for example origin/feature-x.', 'branchline' ) );
 		}
 		[$remote, $rbranch] = explode( '/', preg_replace( '#^remotes/#', '', $ref ), 2 );
 		$local              = $assoc['as'] ?? $rbranch;
@@ -166,26 +185,28 @@ class WPBR_CLI {
 		if ( ! $d->branch_exists( $local ) ) {
 			$d->branch_from( $local, "$remote/$rbranch" );
 			$d->close();
-			WP_CLI::success( "Branch $local created from $remote/$rbranch." );
+			/* translators: 1: local branch name, 2: remote name, 3: remote branch name */
+			WP_CLI::success( sprintf( __( 'Branch %1$s created from %2$s/%3$s.', 'branchline' ), $local, $remote, $rbranch ) );
 			return;
 		}
 		$d->close();
 		$t   = new WPBR_Dolt( $local, false );
 		$msg = $t->pull_remote( $remote, $rbranch );
 		$t->close();
-		WP_CLI::success( "Branch $local updated from $remote/$rbranch. " . trim( str_replace( '\n', ' ', $msg ) ) );
+		/* translators: 1: local branch name, 2: remote name, 3: remote branch name, 4: message from the database */
+		WP_CLI::success( trim( sprintf( __( 'Branch %1$s updated from %2$s/%3$s. %4$s', 'branchline' ), $local, $remote, $rbranch, trim( str_replace( '\n', ' ', $msg ) ) ) ) );
 	}
 
 	/**
 	 * Move this site's database onto a Dolt server.
 	 *
-	 * wp branches import --to=mysql://user:pass@dolt-host:3306/dbname [--from=mysql://...] [--branches=stage,dev] [--batch=1000] [--replace] [--dry-run] [--yes]
+	 * wp branchline import --to=mysql://user:pass@dolt-host:3306/dbname [--from=mysql://...] [--branches=stage,dev] [--batch=1000] [--replace] [--dry-run] [--yes]
 	 *
 	 * --from defaults to the database this site is running on. Nothing on the source is changed.
 	 */
 	public function import( $args, $assoc ): void {
 		if ( empty( $assoc['to'] ) ) {
-			WP_CLI::error( 'Give --to=mysql://user:password@host:port/database for the Dolt server.' );
+			WP_CLI::error( __( 'Give --to=mysql://user:password@host:port/database for the Dolt server.', 'branchline' ) );
 		}
 		try {
 			$to   = WPBR_Import::parse_dsn( $assoc['to'] );
@@ -195,13 +216,15 @@ class WPBR_CLI {
 			WP_CLI::error( $e->getMessage() );
 		}
 		if ( ! $imp->target_is_dolt() ) {
-			WP_CLI::error( 'The target is not a Dolt server.' );
+			WP_CLI::error( __( 'The target is not a Dolt server.', 'branchline' ) );
 		}
 		$plan  = $imp->plan();
 		$rows  = array_sum( array_column( $plan, 'rows' ) );
 		$bytes = array_sum( array_column( $plan, 'bytes' ) );
-		WP_CLI::line( sprintf( 'Source: %s:%d/%s   %d tables, %s rows, %s', $from['host'], $from['port'], $from['db'], count( $plan ), number_format( $rows ), size_format( $bytes ) ) );
-		WP_CLI::line( sprintf( 'Target: %s:%d/%s (Dolt)', $to['host'], $to['port'], $to['db'] ) );
+		/* translators: 1: host, 2: port, 3: database name, 4: number of tables, 5: number of rows, 6: data size */
+		WP_CLI::line( sprintf( __( 'Source: %1$s:%2$d/%3$s   %4$d tables, %5$s rows, %6$s', 'branchline' ), $from['host'], $from['port'], $from['db'], count( $plan ), number_format_i18n( $rows ), size_format( $bytes ) ) );
+		/* translators: 1: host, 2: port, 3: database name */
+		WP_CLI::line( sprintf( __( 'Target: %1$s:%2$d/%3$s (Dolt)', 'branchline' ), $to['host'], $to['port'], $to['db'] ) );
 		if ( ! empty( $assoc['dry-run'] ) ) {
 			WP_CLI\Utils\format_items(
 				'table',
@@ -219,7 +242,7 @@ class WPBR_CLI {
 			return;
 		}
 		if ( empty( $assoc['yes'] ) ) {
-			WP_CLI::confirm( 'Copy these tables to the Dolt server?' );
+			WP_CLI::confirm( __( 'Copy these tables to the Dolt server?', 'branchline' ) );
 		}
 		$t0 = microtime( true );
 		try {
@@ -230,20 +253,23 @@ class WPBR_CLI {
 		}
 		$imp->close();
 		$bad = array_filter( $results, fn( $r ) => ! $r['ok'] );
-		WP_CLI::line( sprintf( 'Done in %.1f s. %d tables, %s rows.', microtime( true ) - $t0, count( $results ), number_format( array_sum( array_column( $results, 'target' ) ) ) ) );
+		/* translators: 1: seconds, 2: number of tables, 3: number of rows */
+		WP_CLI::line( sprintf( __( 'Done in %1$.1f s. %2$d tables, %3$s rows.', 'branchline' ), microtime( true ) - $t0, count( $results ), number_format_i18n( array_sum( array_column( $results, 'target' ) ) ) ) );
 		if ( $bad ) {
 			WP_CLI\Utils\format_items( 'table', $bad, array( 'table', 'source', 'target' ) );
-			WP_CLI::error( count( $bad ) . ' table(s) have a different row count on the target. Check them before switching.' );
+			/* translators: %d: number of tables */
+			WP_CLI::error( sprintf( _n( '%d table has a different row count on the target. Check it before switching.', '%d tables have a different row count on the target. Check them before switching.', count( $bad ), 'branchline' ), count( $bad ) ) );
 		}
-		WP_CLI::success( 'Every table matches. Now point wp-config.php at the Dolt server:' );
+		WP_CLI::success( __( 'Every table matches. Now point wp-config.php at the Dolt server:', 'branchline' ) );
 		WP_CLI::line( sprintf( "  define('DB_HOST', '%s:%d');", $to['host'], $to['port'] ) );
-		WP_CLI::line( sprintf( "  define('DB_NAME', '%s');          // production", $to['db'] ) );
+		WP_CLI::line( sprintf( "  define('DB_NAME', '%s');          // %s", $to['db'], __( 'production', 'branchline' ) ) );
 		foreach ( array_filter( explode( ',', (string) ( $assoc['branches'] ?? '' ) ) ) as $b ) {
-			WP_CLI::line( sprintf( "  define('DB_NAME', '%s/%s');   // on the %s site", $to['db'], trim( $b ), trim( $b ) ) );
+			/* translators: %s: branch name */
+			WP_CLI::line( sprintf( "  define('DB_NAME', '%s/%s');   // %s", $to['db'], trim( $b ), sprintf( __( 'on the %s site', 'branchline' ), trim( $b ) ) ) );
 		}
 	}
 
-	/** wp branches log [--count=20] */
+	/** wp branchline log [--count=20] */
 	public function log( $args, $assoc ): void {
 		$d    = new WPBR_Dolt( WPBR_Dolt::current_branch() );
 		$rows = array_map(
@@ -260,30 +286,34 @@ class WPBR_CLI {
 		WP_CLI\Utils\format_items( $format, $rows, $format === 'table' ? array( 'snapshot', 'when', 'message' ) : array( 'hash', 'when', 'message' ) );
 	}
 
-	/** wp branches rollback <hash> [--yes]: move this branch back to a snapshot; the current head is kept as a tag. */
+	/** wp branchline rollback <hash> [--yes]: move this branch back to a snapshot; the current head is kept as a tag. */
 	public function rollback( $args, $assoc ): void {
 		$hash = $args[0] ?? '';
 		if ( $hash === '' ) {
-			WP_CLI::error( 'Give the snapshot hash to roll back to. See: wp branches log' );
+			WP_CLI::error( __( 'Give the snapshot hash to roll back to. See: wp branchline log', 'branchline' ) );
 		}
 		$branch = WPBR_Dolt::current_branch();
 		$d      = new WPBR_Dolt( $branch, false );
 		if ( ! $d->has_commit( $hash ) ) {
 			$d->close();
-			WP_CLI::error( "Snapshot $hash is not in the history of $branch." ); }
+			/* translators: 1: snapshot hash, 2: branch name */
+			WP_CLI::error( sprintf( __( 'Snapshot %1$s is not in the history of %2$s.', 'branchline' ), $hash, $branch ) );
+		}
 		if ( empty( $assoc['yes'] ) ) {
-			WP_CLI::confirm( "Roll $branch back to $hash? The current head is saved as a tag first." );
+			/* translators: 1: branch name, 2: snapshot hash */
+			WP_CLI::confirm( sprintf( __( 'Roll %1$s back to %2$s? The current head is saved as a tag first.', 'branchline' ), $branch, $hash ) );
 		}
 		$tag  = $d->rollback_to( $hash );
 		$head = $d->head_hash();
 		$d->close();
 		wp_cache_flush();
-		WP_CLI::success( "$branch is now at $head. Previous head saved as tag $tag." );
+		/* translators: 1: branch name, 2: snapshot hash, 3: tag name */
+		WP_CLI::success( sprintf( __( '%1$s is now at %2$s. Previous head saved as tag %3$s.', 'branchline' ), $branch, $head, $tag ) );
 	}
 
 	public function preview( $args, $assoc ): void {
 		if ( empty( $assoc['into'] ) || empty( $assoc['from'] ) ) {
-			WP_CLI::error( 'Give --into=<branch> and --from=<branch>.' );
+			WP_CLI::error( __( 'Give --into=<branch> and --from=<branch>.', 'branchline' ) );
 		}
 		$engine = new WPBR_Merge_Engine( $assoc['into'], $assoc['from'] );
 		WP_CLI::line( wp_json_encode( $engine->preview(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
@@ -291,22 +321,34 @@ class WPBR_CLI {
 
 	private function run_merge( WPBR_Merge_Engine $engine, array $assoc ): void {
 		$p = $engine->preview();
-		WP_CLI::line( sprintf( 'Merging %s into %s%s', $p['source'], $p['target'], $p['fast_forward'] ? ' (fast forward)' : '' ) );
-		WP_CLI::line( 'Incoming:' );
+		if ( $p['fast_forward'] ) {
+			/* translators: 1: source branch, 2: target branch */
+			WP_CLI::line( sprintf( __( 'Merging %1$s into %2$s (fast forward)', 'branchline' ), $p['source'], $p['target'] ) );
+		} else {
+			/* translators: 1: source branch, 2: target branch */
+			WP_CLI::line( sprintf( __( 'Merging %1$s into %2$s', 'branchline' ), $p['source'], $p['target'] ) );
+		}
+		WP_CLI::line( __( 'Incoming:', 'branchline' ) );
 		foreach ( $p['incoming'] as $t ) {
-			WP_CLI::line( sprintf( '  %-32s +%d ~%d -%d%s', $t['label'], $t['added'], $t['modified'], $t['deleted'], ! empty( $t['approx'] ) ? '  (large table, totals include bookkeeping)' : '' ) );
+			WP_CLI::line( sprintf( '  %-32s +%d ~%d -%d%s', $t['label'], $t['added'], $t['modified'], $t['deleted'], ! empty( $t['approx'] ) ? '  ' . __( '(large table, totals include bookkeeping)', 'branchline' ) : '' ) );
 		}
 		if ( ! empty( $p['attachments'] ) ) {
-			WP_CLI::line( sprintf( 'Attachments: %d; files %s', $p['attachments'], $p['uploads_from'] && $p['uploads_to'] ? "copied from {$p['uploads_from']} to {$p['uploads_to']}" : 'NOT copied (set WPBR_UPLOADS_DIRS)' ) );
+			$files = $p['uploads_from'] && $p['uploads_to']
+				/* translators: 1: source uploads directory, 2: target uploads directory */
+				? sprintf( __( 'files copied from %1$s to %2$s', 'branchline' ), $p['uploads_from'], $p['uploads_to'] )
+				: __( 'files NOT copied (set WPBR_UPLOADS_DIRS)', 'branchline' );
+			/* translators: 1: number of attachments, 2: what happens to their files */
+			WP_CLI::line( sprintf( __( 'Attachments: %1$d; %2$s', 'branchline' ), $p['attachments'], $files ) );
 		}
 		if ( $p['auto'] ) {
-			WP_CLI::line( 'Resolved automatically:' );
+			WP_CLI::line( __( 'Resolved automatically:', 'branchline' ) );
 			foreach ( $p['auto'] as $a ) {
 				WP_CLI::line( sprintf( '  %-50s %-7s %s', $a['label'], $a['resolution'], $a['reason'] ) );
 			}
 		}
 		if ( ! empty( $p['silent'] ) ) {
-			WP_CLI::line( sprintf( 'Bookkeeping clashes resolved without review: %d', $p['silent'] ) );
+			/* translators: %d: number of bookkeeping clashes */
+			WP_CLI::line( sprintf( __( 'Bookkeeping clashes resolved without review: %d', 'branchline' ), $p['silent'] ) );
 		}
 		$decisions = array();
 		foreach ( (array) ( $assoc['resolve'] ?? array() ) as $r ) {
@@ -316,19 +358,20 @@ class WPBR_CLI {
 			}
 		}
 		if ( $p['human'] ) {
-			WP_CLI::line( 'Need a decision:' );
+			WP_CLI::line( __( 'Need a decision:', 'branchline' ) );
 			foreach ( $p['human'] as $h ) {
 				WP_CLI::line( sprintf( '  %s  [%s]  %s', $h['key'], $h['label'], $h['reason'] ) );
 				if ( ! isset( $decisions[ $h['key'] ] ) ) {
 					if ( ! empty( $assoc['yes'] ) ) {
-						WP_CLI::error( 'Unresolved conflict and --yes given. Pass --resolve=' . $h['key'] . '=ours|theirs|merged.' );
+						/* translators: %s: conflict key */
+						WP_CLI::error( sprintf( __( 'Unresolved conflict and --yes given. Pass --resolve=%s=ours|theirs|merged.', 'branchline' ), $h['key'] ) );
 					}
 					$decisions[ $h['key'] ] = $this->ask( $h );
 				}
 			}
 		}
 		if ( empty( $assoc['yes'] ) ) {
-			WP_CLI::confirm( 'Apply this merge?' );
+			WP_CLI::confirm( __( 'Apply this merge?', 'branchline' ) );
 		}
 		$r     = $engine->apply(
 			$decisions,
@@ -339,7 +382,8 @@ class WPBR_CLI {
 			$assoc['message'] ?? ''
 		);
 		$files = WPBR_Files::describe( $r['files'] ?? array( 'attachments' => 0 ) );
-		WP_CLI::success( 'Merged. New head ' . $r['hash'] . ' on ' . $p['target'] . '.' . ( $files ? ' ' . $files : '' ) );
+		/* translators: 1: snapshot hash, 2: target branch */
+		WP_CLI::success( trim( sprintf( __( 'Merged. New head %1$s on %2$s.', 'branchline' ), $r['hash'], $p['target'] ) . ( $files ? ' ' . $files : '' ) ) );
 	}
 
 	private function ask( array $h ): string {
@@ -347,7 +391,8 @@ class WPBR_CLI {
 		if ( ! empty( $h['merged'] ) ) {
 			$opts[] = 'merged';
 		}
-		fwrite( STDOUT, '    choose ' . implode( '/', $opts ) . ': ' );
+		/* translators: %s: the choices, separated by slashes */
+		fwrite( STDOUT, sprintf( __( '    choose %s: ', 'branchline' ), implode( '/', $opts ) ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- interactive terminal prompt, not a file.
 		$in = trim( (string) fgets( STDIN ) );
 		return in_array( $in, $opts, true ) ? $in : $this->ask( $h );
 	}

@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<ruleset name="Branchline">
+	<description>WordPress coding standards for Branchline.</description>
+
+	<file>wp-branches.php</file>
+	<file>uninstall.php</file>
+	<file>includes</file>
+
+	<arg name="extensions" value="php"/>
+	<arg name="colors"/>
+	<arg value="sp"/>
+
+	<config name="minimum_wp_version" value="6.4"/>
+	<config name="testVersion" value="8.1-"/>
+
+	<rule ref="WordPress-Extra">
+		<!-- Style choices this codebase does not follow. -->
+		<exclude name="WordPress.PHP.YodaConditions"/>
+		<exclude name="Universal.Operators.DisallowShortTernary"/>
+		<exclude name="WordPress.Files.FileName"/>
+		<!-- The plugin's job is to merge serialized WordPress values key by key. -->
+		<exclude name="WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize"/>
+		<exclude name="WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize"/>
+		<!-- Branches are reached over a second mysqli connection, never through $wpdb. -->
+		<exclude name="WordPress.DB.RestrictedFunctions.mysql_mysqli_init"/>
+		<exclude name="WordPress.DB.RestrictedFunctions.mysql_mysqli_real_connect"/>
+	</rule>
+
+	<rule ref="PHPCompatibilityWP"/>
+
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="branchline"/>
+			</property>
+		</properties>
+	</rule>
+</ruleset>

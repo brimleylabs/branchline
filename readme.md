@@ -1,0 +1,120 @@
+# Branches
+
+Git-style branches for your WordPress database.
+
+Every environment, production, staging, each developer, is a branch of one
+database. Production keeps accumulating posts, comments, users and orders.
+Staging gets the release: redesigned pages, new navigation, settings, a new
+plugin and its tables. When the release is ready you merge, in either
+direction, and nothing gets overwritten.
+
+- **Pull** brings production's content down into a release branch.
+- **Publish** merges the release branch into production.
+- A **snapshot** records the current state of a branch, like a commit.
+
+The merge is a real three-way merge at the row and column level, run by
+[Dolt](https://github.com/dolthub/dolt), a MySQL-compatible database with git
+semantics. Branches adds the part the database cannot know: what the rows mean.
+
+## The rules
+
+| Class | What it is | Who wins a clash |
+|---|---|---|
+| Structure | settings, navigation, menus, templates, global styles, reusable blocks, links | the release branch |
+| Editorial | pages (configurable) | merged field by field; a real clash is shown to you |
+| Content | posts, attachments, comments, users, terms, anything a plugin stores | production |
+| Noise | transients, cron, edit locks, sessions, screen settings | never shown; each branch keeps its own |
+
+Within a row, fields each side changed differently are combined. Modified
+timestamps take the newest, counters take the larger, and serialized PHP or
+JSON values are merged key by key. Only a true clash on the same field reaches
+a rule or a person.
+
+Because the database coordinates auto-increment IDs across branches, a post
+created on staging and a post created on production never share an ID, so
+references inside block JSON and serialized data stay valid after a merge.
+
+## Setup
+
+1. Run a Dolt SQL server and create the database:
+
+       dolt sql-server --port 3307
+       mysql -h 127.0.0.1 -P 3307 -u root -e "CREATE DATABASE wp"
+
+2. Point production's `wp-config.php` at it and install WordPress as usual:
+
+       define('DB_NAME', 'wp');
+       define('DB_HOST', '127.0.0.1:3307');
+
+3. Snapshot and branch:
+
+       mysql -h 127.0.0.1 -P 3307 -u root wp -e "CALL dolt_commit('-Am','baseline'); CALL dolt_branch('stage');"
+
+4. Point the staging site at the branch. Same server, same credentials:
+
+       define('DB_NAME', 'wp/stage');
+       define('WP_HOME', 'https://stage.example.com');
+       define('WP_SITEURL', 'https://stage.example.com');
+
+5. Install this plugin on every environment. Optional: `define('WPBR_PRODUCTION_BRANCH', 'main');`
+
+6. Tell it where each environment keeps its uploads, so attachment files follow
+   their rows when a merge brings them in:
+
+       define('WPBR_UPLOADS_DIRS', [
+           'main'  => '/var/www/prod/wp-content/uploads',
+           'stage' => '/var/www/stage/wp-content/uploads',
+       ]);
+
+   The branch a site runs on defaults to its own uploads directory. When
+   environments are on different machines or in object storage, hook
+   `wpbr_copy_attachment_file` and copy the file your own way.
+
+Developers' machines can hold a clone (`dolt clone`) and push branches to the
+server the way they push code.
+
+## Using it
+
+In wp-admin, **Branches** shows the current branch, uncommitted changes and
+recent snapshots. **Pull from production** and **Publish to production** open a
+review screen: what is coming in, what was resolved automatically and why,
+and the few clashes that need a decision, side by side. Apply runs the merge
+in one transaction and records a commit.
+
+From the command line, for pipelines:
+
+    wp branches status
+    wp branches snapshot --message="Release 2.4 ready"
+    wp branches diff
+    wp branches pull
+    wp branches publish --yes --resolve=wp_posts:3f2a...=merged
+
+## Filters
+
+- `wpbr_editorial_post_types` array of post types merged field by field (default `['page']`)
+- `wpbr_row_class` override the class of any row
+- `wpbr_table_label` label for a table on the review screen
+- `wpbr_noise_tables` tables whose every row is bookkeeping (queues, logs, rate limits)
+- `wpbr_noise_option_prefixes` option name prefixes treated as bookkeeping
+- `wpbr_uploads_dir` uploads directory for a branch
+- `wpbr_copy_attachment_file` take over copying one attachment file (return true or false)
+
+## Tested with
+
+WordPress 7.1 on Dolt 2.7, three environments, with WooCommerce 11.2 installed
+on the release branch and published to production: 41 new tables, 190 settings,
+products, then orders placed in production pulled back into the release branch
+while the release changed prices and the currency. Clashes resolved by the
+rules: production's price, the release's currency. Nothing lost in either
+direction.
+
+## Limits in this version
+
+- Code (themes, plugins) still deploys through git. Branches handles the database.
+- Options and transients WordPress writes while a merge is being reviewed are
+  committed as part of the pre-merge snapshot.
+- Files for attachments deleted on the other branch are left in place.
+- Unique-key collisions between users created on both sides are shown for a decision.
+- Tables with more than 5,000 changed rows are counted from table statistics,
+  which include bookkeeping rows; the review screen says so.
+- Single site only. Multisite is untested.

@@ -106,9 +106,10 @@ class WPBR_Admin {
 			'source_hash' => sanitize_text_field( wp_unslash( $_POST['source_hash'] ?? '' ) ),
 		);
 		$decisions = array();
-		foreach ( (array) ( $_POST['decision'] ?? array() ) as $k => $v ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- each key and value is sanitized on the next line.
-			$v = sanitize_text_field( wp_unslash( $v ) );
-			$decisions[ sanitize_text_field( wp_unslash( $k ) ) ] = in_array( $v, array( 'ours', 'theirs', 'merged', 'delete' ), true ) ? $v : '';
+		$raw_decisions = isset( $_POST['decision'] ) ? (array) wp_unslash( $_POST['decision'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- each key and value is sanitized below.
+		foreach ( $raw_decisions as $k => $v ) {
+			$v = sanitize_text_field( $v );
+			$decisions[ sanitize_text_field( $k ) ] = in_array( $v, array( 'ours', 'theirs', 'merged', 'delete' ), true ) ? $v : '';
 		}
 		try {
 			$engine = new WPBR_Merge_Engine( $target, $source );

@@ -577,6 +577,7 @@ class WPBR_Merge_Engine {
 					$this->t->update_row( $table, $pk, $this->without_pk( $item['merged'], $pk ) ); }
 				break;
 			default:
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- escaped where displayed.
 				throw new RuntimeException( 'Unknown resolution ' . $choice );
 		}
 		$this->t->clear_conflict( $table, $item['conflict_id'] );

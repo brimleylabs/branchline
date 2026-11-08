@@ -123,7 +123,6 @@ class WPBR_Files {
 					wp_mkdir_p( dirname( $dst ) );
 				}
 				if ( @copy( $src, $dst ) ) {
-					@touch( $dst, filemtime( $src ) );
 					++$out['copied'];
 				} else {
 					$out['missing'][] = $rel; }
@@ -216,7 +215,8 @@ class WPBR_Files {
 				if ( ! is_dir( dirname( $to ) ) ) {
 					wp_mkdir_p( dirname( $to ) );
 				}
-				if ( @rename( $src, $to ) ) {
+				// A move inside the uploads directory of this install; WP_Filesystem has no credentials in a merge request.
+				if ( @rename( $src, $to ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename
 					++$out['trashed'];
 					$out['trash_dir'] = $trash; }
 			}

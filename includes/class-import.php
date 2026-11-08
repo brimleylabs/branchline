@@ -57,7 +57,8 @@ class WPBR_Import {
 	}
 
 	private static function connect( array $c, string $what, bool $select_db = true ): mysqli {
-		$m = mysqli_init();
+		// The import talks to two servers, the current one and the Dolt target; neither is $wpdb's connection.
+		$m = mysqli_init(); // phpcs:ignore WordPress.DB.RestrictedFunctions.mysql_mysqli_init
 		$m->options( MYSQLI_OPT_CONNECT_TIMEOUT, 15 );
 		$err = '';
 		try {

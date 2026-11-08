@@ -5,7 +5,6 @@
  * Description:       Version control for the WordPress database. Every environment is a branch. Pull production content down, publish releases up, and merge with rules that know what WordPress rows mean.
  * Version:           1.0.0
  * Requires at least: 6.4
- * Tested up to:      7.1
  * Requires PHP:      8.1
  * Author:            Brimley Labs
  * Author URI:        https://brimleylabs.com

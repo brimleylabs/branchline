@@ -19,10 +19,13 @@ class WPBR_Dolt {
 		$this->database         = self::base_database();
 		$this->branch           = $branch;
 		[$host, $port, $socket] = self::host_parts();
-		$this->db               = mysqli_init();
+		// A branch is a separate database name on the same server. $wpdb is bound to this site's
+		// branch, so every other branch needs its own connection.
+		$this->db = mysqli_init(); // phpcs:ignore WordPress.DB.RestrictedFunctions.mysql_mysqli_init
 		$this->db->options( MYSQLI_OPT_CONNECT_TIMEOUT, 10 );
 		$dbname = $this->database . '/' . $branch;
 		if ( ! @$this->db->real_connect( $host, DB_USER, DB_PASSWORD, $dbname, $port, $socket ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- escaped where displayed.
 			throw new RuntimeException( "Could not connect to branch '$branch': " . $this->db->connect_error );
 		}
 		$this->db->set_charset( defined( 'DB_CHARSET' ) && DB_CHARSET ? DB_CHARSET : 'utf8mb4' );
@@ -41,13 +44,13 @@ class WPBR_Dolt {
 			return $parts[1];
 		}
 		global $wpdb;
-		$b = $wpdb->get_var( 'SELECT active_branch()' );
+		$b = $wpdb->get_var( 'SELECT active_branch()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- server function, no table, no cache possible.
 		return $b ?: 'main';
 	}
 
 	public static function is_dolt(): bool {
 		global $wpdb;
-		$v = $wpdb->get_var( 'SELECT dolt_version()' );
+		$v = $wpdb->get_var( 'SELECT dolt_version()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- server function, no table, no cache possible.
 		return (bool) $v;
 	}
 
@@ -98,6 +101,7 @@ class WPBR_Dolt {
 	private function prepare( string $sql, array $params ): mysqli_stmt {
 		$stmt = $this->db->prepare( $sql );
 		if ( ! $stmt ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- escaped where displayed.
 			throw new RuntimeException( "Dolt query failed to prepare: {$this->db->error} :: $sql" );
 		}
 		if ( $params ) {
@@ -244,6 +248,7 @@ class WPBR_Dolt {
 		$left = (int) $this->var( 'SELECT COUNT(*) FROM dolt_conflicts' );
 		$viol = (int) $this->var( 'SELECT COUNT(*) FROM dolt_constraint_violations' );
 		if ( $left || $viol ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- escaped where displayed.
 			throw new RuntimeException( "Merge still has $left conflicted tables and $viol tables with constraint violations." );
 		}
 		$this->exec( 'CALL dolt_commit(?, ?, ?)', array( '-A', '-m', $message ) );
@@ -282,6 +287,7 @@ class WPBR_Dolt {
 	 */
 	public function rollback_to( string $hash ): string {
 		if ( ! $this->has_commit( $hash ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- escaped where displayed.
 			throw new RuntimeException( "Snapshot $hash is not in the history of " . $this->branch . '.' );
 		}
 		$this->snapshot( 'Unsaved changes before rollback (' . $this->branch . ')' );

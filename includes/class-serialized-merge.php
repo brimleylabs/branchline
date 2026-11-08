@@ -68,6 +68,7 @@ class WPBR_Serialized_Merge {
 					// We added it.
 					$out[ $k ] = $ours[ $k ];
 				} elseif ( $ours[ $k ] !== $base[ $k ] ) {
+					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- caught by the merge engine, never shown raw.
 					throw new RuntimeException( "they removed '$k', we changed it" );
 				}
 				// Otherwise they removed it and we did not touch it: drop.
@@ -76,6 +77,7 @@ class WPBR_Serialized_Merge {
 					// They added it.
 					$out[ $k ] = $theirs[ $k ];
 				} elseif ( $theirs[ $k ] !== $base[ $k ] ) {
+					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- caught by the merge engine, never shown raw.
 					throw new RuntimeException( "we removed '$k', they changed it" );
 				}
 				// Otherwise we removed it and they did not touch it: drop.

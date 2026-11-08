@@ -18,6 +18,10 @@
  * @package Branchline
  */
 
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 if ( ! defined( 'WPBR_MS_CANONICAL_HOST' ) || ! defined( 'WPBR_MS_HOST' ) || WPBR_MS_CANONICAL_HOST === WPBR_MS_HOST ) {
 	return;
 }

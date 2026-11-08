@@ -143,9 +143,10 @@ class WPBR_Admin
         exit;
     }
 
-    private static function remote_form(string $op, array $fields, string $label, string $class = 'button'): string
+    /** A one-button form posting to the remote handler. */
+    private static function remote_form(string $op, array $fields, string $label, string $class = 'button button-small'): string
     {
-        $h = '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline">' . wp_nonce_field('wpbr_remote', '_wpnonce', true, false);
+        $h = '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wpbr-btnform">' . wp_nonce_field('wpbr_remote', '_wpnonce', true, false);
         $h .= '<input type="hidden" name="action" value="wpbr_remote"><input type="hidden" name="op" value="' . esc_attr($op) . '">';
         foreach ($fields as $k => $v) $h .= '<input type="hidden" name="' . esc_attr($k) . '" value="' . esc_attr($v) . '">';
         return $h . '<button class="' . esc_attr($class) . '">' . esc_html($label) . '</button></form>';
@@ -175,13 +176,16 @@ class WPBR_Admin
         echo '</div>';
     }
 
+    // ------------------------------------------------------------------ overview
+
     private static function overview(): void
     {
         $branch = WPBR_Dolt::current_branch();
         $is_prod = $branch === WPBR_PRODUCTION_BRANCH;
         $d = new WPBR_Dolt($branch);
+        $head = $d->head_hash();
         $status = $d->status();
-        $log = $d->log(8);
+        $log = $d->log(10);
         $branches = $d->branches();
         $prod_hash = '';
         foreach ($branches as $b) if ($b['name'] === WPBR_PRODUCTION_BRANCH) $prod_hash = $b['hash'];
@@ -196,75 +200,105 @@ class WPBR_Admin
         $remote_branches = $remotes ? $d->remote_branches() : [];
         $d->close();
 
-        echo '<h1>Branches <span class="wpbr-pill' . ($is_prod ? ' prod' : '') . '">' . esc_html($branch) . ($is_prod ? ' · production' : '') . '</span></h1>';
-        echo '<p class="muted">This site reads and writes the <code>' . esc_html($branch) . '</code> branch of database <code>' . esc_html(WPBR_Dolt::base_database()) . '</code>. Production is <code>' . esc_html(WPBR_PRODUCTION_BRANCH) . '</code>.</p>';
+        echo '<h1>Branches ' . self::pill($branch, $is_prod) . '</h1>';
+        echo '<p class="wpbr-sub">This site reads and writes the <code>' . esc_html($branch) . '</code> branch of database <code>' . esc_html(WPBR_Dolt::base_database()) . '</code>. Production is <code>' . esc_html(WPBR_PRODUCTION_BRANCH) . '</code>.</p>';
 
-        echo '<div class="wpbr-grid">';
-        echo '<div class="card"><h2>Uncommitted changes</h2><p class="big">' . count($status) . ' table' . (count($status) === 1 ? '' : 's') . '</p>';
-        echo '<p class="muted">' . ($status ? esc_html(implode(', ', array_column($status, 'table_name'))) : 'Everything is recorded in a snapshot.') . '</p>';
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field('wpbr_snapshot', '_wpnonce', true, false) . '<input type="hidden" name="action" value="wpbr_snapshot">';
-        echo '<p><input type="text" name="message" class="regular-text" placeholder="What changed?" style="width:100%"></p><button class="button">Record snapshot</button></form></div>';
-
+        // ---- status bar: the numbers that matter and the three things you can do
+        echo '<div class="card wpbr-status">';
+        echo '<div class="wpbr-stats">';
+        echo self::stat('<code>' . esc_html(substr($head, 0, 8)) . '</code>', 'current snapshot');
+        echo self::stat((string) count($status), count($status) === 1 ? 'table with unsaved changes' : 'tables with unsaved changes', $status ? 'warn' : 'ok');
         if (!$is_prod) {
-            echo '<div class="card"><h2>Compared with production</h2>';
-            echo '<p class="big">' . (int) $ahead . ' <span class="muted" style="font-size:14px;font-weight:400">rows changed here</span></p>';
-            echo '<p class="big">' . (int) $behind . ' <span class="muted" style="font-size:14px;font-weight:400">rows changed in production</span></p>';
-            echo '<p class="muted">Bookkeeping rows (transients, cron, locks, sessions) are not counted.</p>';
-            echo '<div class="actions"><a class="button button-primary" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'publish'])) . '">Publish to production</a>';
-            echo '<a class="button" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'pull'])) . '">Pull from production</a></div></div>';
-        } else {
-            echo '<div class="card"><h2>Production</h2><p class="muted">Pull and publish run from a release branch. Open the staging site to merge.</p></div>';
+            echo self::stat((string) $ahead, 'rows changed here, not yet in production', $ahead ? 'info' : '');
+            echo self::stat((string) $behind, 'rows changed in production, not yet here', $behind ? 'info' : '');
         }
-
-        echo '<div class="card"><h2>Branches</h2><table class="wpbr-table"><tr><th>Name</th><th>Head</th><th>Last snapshot</th><th></th></tr>';
-        foreach ($branches as $b) {
-            $action = '';
-            if ($b['name'] !== $branch && $b['name'] !== WPBR_PRODUCTION_BRANCH) {
-                $action = '<a class="button button-small" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'merge', 'from' => $b['name']])) . '">Merge into ' . esc_html($branch) . '</a>';
-            }
-            echo '<tr><td>' . esc_html($b['name']) . ($b['name'] === $branch ? ' <span class="wpbr-pill">this site</span>' : '') . '</td><td><code>' . esc_html(substr($b['hash'], 0, 8)) . '</code></td><td>' . esc_html(mb_strimwidth((string) $b['latest_commit_message'], 0, 60, '…')) . '</td><td>' . $action . '</td></tr>';
+        echo '</div>';
+        echo '<div class="wpbr-actionbar">';
+        if (!$is_prod) {
+            echo '<a class="button button-primary" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'publish'])) . '">Publish to production</a>';
+            echo '<a class="button" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'pull'])) . '">Pull from production</a>';
         }
-        echo '</table></div></div>';
-
-        // Remotes: where laptops clone from and push to.
-        echo '<div class="card"><h2>Remotes</h2>';
-        echo '<p class="muted">A remote is another Dolt server, DoltHub, DoltLab, a storage bucket or a directory. Developers clone it, work on their own branch, and push it back. Fetch here, then track the branch and merge it into <code>' . esc_html($branch) . '</code>.</p>';
-        if ($remotes) {
-            echo '<table class="wpbr-table"><tr><th>Name</th><th>URL</th><th></th></tr>';
-            foreach ($remotes as $r) {
-                echo '<tr><td>' . esc_html($r['name']) . '</td><td><code>' . esc_html($r['url']) . '</code></td><td class="rowactions">';
-                echo self::remote_form('fetch', ['name' => $r['name']], 'Fetch') . ' ';
-                echo self::remote_form('push', ['name' => $r['name']], 'Push ' . $branch) . ' ';
-                echo self::remote_form('remove', ['name' => $r['name']], 'Remove', 'button button-link-delete');
-                echo '</td></tr>';
-            }
-            echo '</table>';
+        echo '<details class="wpbr-reveal"><summary class="button">Record snapshot</summary>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wpbr-inline">' . wp_nonce_field('wpbr_snapshot', '_wpnonce', true, false) . '<input type="hidden" name="action" value="wpbr_snapshot">';
+        echo '<input type="text" name="message" class="regular-text" placeholder="What changed?"><button class="button button-primary">Save snapshot</button></form></details>';
+        echo '</div>';
+        if ($status) {
+            echo '<p class="wpbr-fine">Unsaved changes in ' . implode(', ', array_map(fn($t) => '<code>' . esc_html($t['table_name']) . '</code>', $status)) . '. A merge records them in a snapshot first.</p>';
         }
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wpbr-inline">' . wp_nonce_field('wpbr_remote', '_wpnonce', true, false) . '<input type="hidden" name="action" value="wpbr_remote"><input type="hidden" name="op" value="add">';
-        echo '<input type="text" name="name" placeholder="origin" value="' . ($remotes ? '' : 'origin') . '" style="width:120px"> <input type="text" name="url" placeholder="https://doltremoteapi.dolthub.com/org/db or file:///path or aws://bucket" style="width:420px"> <button class="button">Add remote</button></form>';
-        if ($remote_branches) {
-            echo '<h3>Remote branches</h3><table class="wpbr-table"><tr><th>Branch</th><th>Head</th><th>Last snapshot</th><th></th></tr>';
-            $local = array_column($branches, 'hash', 'name');
-            foreach ($remote_branches as $rb) {
-                $short = preg_replace('#^remotes/[^/]+/#', '', $rb['name']);
-                $state = !isset($local[$short]) ? 'not tracked yet' : ($local[$short] === $rb['hash'] ? 'up to date' : 'differs from local');
-                if ($short === $branch && $state === 'differs from local') $state = 'this site has newer snapshots; push to update the remote';
-                $can_track = $state === 'not tracked yet' || $state === 'differs from local';
-                echo '<tr><td><code>' . esc_html($rb['name']) . '</code></td><td><code>' . esc_html(substr($rb['hash'], 0, 8)) . '</code></td><td>' . esc_html(mb_strimwidth((string) $rb['latest_commit_message'], 0, 50, '…')) . '</td>';
-                echo '<td><span class="muted">' . esc_html($state) . '</span> ' . ($can_track ? self::remote_form('track', ['ref' => $rb['name']], isset($local[$short]) ? 'Update ' . $short : 'Track as ' . $short, 'button button-small') : '') . '</td></tr>';
-            }
-            echo '</table>';
-        } elseif ($remotes) {
-            echo '<p class="muted">Fetch to see remote branches.</p>';
+        if ($is_prod) {
+            echo '<p class="wpbr-fine">Pull and publish run from a release branch. Open the staging site to merge.</p>';
+        } elseif ($ahead || $behind) {
+            echo '<p class="wpbr-fine">Row counts leave out bookkeeping: transients, cron, locks and sessions.</p>';
         }
         echo '</div>';
 
-        echo '<div class="card"><h2>Recent snapshots on ' . esc_html($branch) . '</h2><ul class="log">';
-        foreach ($log as $c) {
-            echo '<li><code>' . esc_html(substr($c['commit_hash'], 0, 8)) . '</code> <span class="muted">' . esc_html(substr($c['date'], 0, 16)) . '</span> ' . esc_html($c['message']) . '</li>';
+        // ---- branches and remotes side by side
+        echo '<div class="wpbr-cols">';
+
+        echo '<div class="card"><h2>Branches</h2>';
+        echo '<table class="wpbr-table"><thead><tr><th>Branch</th><th>Head</th><th>Last snapshot</th><th class="right"></th></tr></thead><tbody>';
+        foreach ($branches as $b) {
+            $is_this = $b['name'] === $branch;
+            $is_p = $b['name'] === WPBR_PRODUCTION_BRANCH;
+            $action = '';
+            if ($is_this) {
+                $action = '<span class="wpbr-tag">this site</span>';
+            } elseif ($is_p) {
+                $action = $is_prod ? '' : '<a class="button button-small" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'pull'])) . '">Pull</a>';
+            } else {
+                $action = '<a class="button button-small" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'merge', 'from' => $b['name']])) . '">Merge into ' . esc_html($branch) . '</a>';
+            }
+            echo '<tr><td><strong>' . esc_html($b['name']) . '</strong>' . ($is_p ? ' <span class="wpbr-tag prod">production</span>' : '') . '</td>';
+            echo '<td><code>' . esc_html(substr($b['hash'], 0, 8)) . '</code></td>';
+            echo '<td>' . esc_html((string) $b['latest_commit_message']) . '<br><span class="wpbr-fine">' . esc_html(self::when($b['latest_commit_date'] ?? '')) . '</span></td>';
+            echo '<td class="right">' . $action . '</td></tr>';
         }
-        echo '</ul></div>';
+        echo '</tbody></table></div>';
+
+        echo '<div class="card"><h2>Remotes</h2>';
+        if ($remotes) {
+            foreach ($remotes as $r) {
+                echo '<div class="wpbr-remote"><div><strong>' . esc_html($r['name']) . '</strong><br><code class="wpbr-url">' . esc_html($r['url']) . '</code></div>';
+                echo '<div class="wpbr-btns">' . self::remote_form('fetch', ['name' => $r['name']], 'Fetch') . self::remote_form('push', ['name' => $r['name']], 'Push ' . $branch) . self::remote_form('remove', ['name' => $r['name']], 'Remove', 'button-link button-link-delete') . '</div></div>';
+            }
+        } else {
+            echo '<p class="wpbr-fine">No remotes yet. A remote is another Dolt server, DoltHub, DoltLab, a storage bucket or a directory. Developers clone it, work on their own branch and push it back.</p>';
+        }
+        echo '<details class="wpbr-reveal"' . ($remotes ? '' : ' open') . '><summary class="button button-small">Add a remote</summary>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wpbr-inline">' . wp_nonce_field('wpbr_remote', '_wpnonce', true, false) . '<input type="hidden" name="action" value="wpbr_remote"><input type="hidden" name="op" value="add">';
+        echo '<input type="text" name="name" placeholder="origin" value="origin" class="wpbr-w-s"><input type="text" name="url" placeholder="URL of the remote" class="wpbr-w-l"><button class="button">Add</button></form></details>';
+
+        if ($remote_branches) {
+            echo '<h3>Remote branches</h3><table class="wpbr-table"><thead><tr><th>Branch</th><th>Head</th><th>Last snapshot</th><th class="right"></th></tr></thead><tbody>';
+            $local = array_column($branches, 'hash', 'name');
+            foreach ($remote_branches as $rb) {
+                $short = preg_replace('#^remotes/[^/]+/#', '', $rb['name']);
+                $remote_name = preg_replace('#^remotes/([^/]+)/.*$#', '$1', $rb['name']);
+                if (!isset($local[$short])) { $state = 'new'; $btn = 'Track'; }
+                elseif ($local[$short] === $rb['hash']) { $state = 'up to date'; $btn = ''; }
+                elseif ($short === $branch) { $state = 'behind this site'; $btn = ''; }
+                else { $state = 'newer than local'; $btn = 'Update'; }
+                echo '<tr><td><strong>' . esc_html($short) . '</strong> <span class="wpbr-fine">' . esc_html($remote_name) . '</span></td><td><code>' . esc_html(substr($rb['hash'], 0, 8)) . '</code></td>';
+                echo '<td>' . esc_html((string) $rb['latest_commit_message']) . '<br><span class="wpbr-fine">' . esc_html($state) . '</span></td>';
+                echo '<td class="right">' . ($btn ? self::remote_form('track', ['ref' => $rb['name']], $btn) : '') . '</td></tr>';
+            }
+            echo '</tbody></table>';
+        } elseif ($remotes) {
+            echo '<p class="wpbr-fine">Fetch to list the branches on a remote.</p>';
+        }
+        echo '</div>';
+
+        echo '</div>'; // cols
+
+        // ---- activity
+        echo '<div class="card"><h2>Recent snapshots on ' . esc_html($branch) . '</h2><table class="wpbr-table wpbr-log"><tbody>';
+        foreach ($log as $c) {
+            echo '<tr><td class="wpbr-nowrap"><code>' . esc_html(substr($c['commit_hash'], 0, 8)) . '</code></td><td class="wpbr-nowrap wpbr-fine">' . esc_html(self::when($c['date'])) . '</td><td>' . esc_html($c['message']) . '</td></tr>';
+        }
+        echo '</tbody></table></div>';
     }
+
+    // -------------------------------------------------------------------- review
 
     private static function review(): void
     {
@@ -272,7 +306,6 @@ class WPBR_Admin
         $dir = sanitize_text_field(wp_unslash($_GET['dir'] ?? 'publish'));
         if (!in_array($dir, ['pull', 'publish', 'merge'], true)) $dir = 'publish';
         if ($dir === 'merge') {
-            // Any other local branch (a developer's feature branch, say) into this one.
             $from = sanitize_text_field(wp_unslash($_GET['from'] ?? ''));
             $d = new WPBR_Dolt($branch);
             $ok = $from !== '' && $from !== $branch && $d->branch_exists($from);
@@ -292,95 +325,161 @@ class WPBR_Admin
         $engine = new WPBR_Merge_Engine($target, $source);
         $p = $engine->preview();
         $titles = ['pull' => 'Pull from production', 'publish' => 'Publish to production', 'merge' => 'Merge ' . $source . ' into ' . $target];
-        // Which side wins a clashing editorial field when "Combine" is chosen.
+        $verbs  = ['pull' => 'Pull into ', 'publish' => 'Publish to ', 'merge' => 'Merge into '];
         $combine_winner = in_array(WPBR_PRODUCTION_BRANCH, [$source, $target], true) ? 'production' : $target;
+        $rows_in = WPBR_Merge_Engine::total($p['incoming']);
+        $can_apply = (bool) $p['incoming'] && empty($p['up_to_date']);
 
-        echo '<h1>' . esc_html($titles[$dir]) . ' <span class="wpbr-pill">' . esc_html($source) . ' → ' . esc_html($target) . '</span></h1>';
-        echo '<p class="muted"><a href="' . esc_url(self::url()) . '">← Back</a></p>';
+        echo '<h1>' . esc_html($titles[$dir]) . ' <span class="wpbr-pill">' . esc_html($source) . ' <span class="wpbr-dim">to</span> ' . esc_html($target) . '</span></h1>';
+        echo '<p class="wpbr-sub"><a href="' . esc_url(self::url()) . '">Back to Branches</a></p>';
 
         if (!empty($p['up_to_date'])) {
-            echo '<div class="ff"><code>' . esc_html($target) . '</code> already contains everything on <code>' . esc_html($source) . '</code>. Nothing to merge.</div>';
-        } elseif ($p['fast_forward']) {
-            echo '<div class="ff">Nothing on <code>' . esc_html($target) . '</code> has changed since the branches split. This merge is a clean fast-forward.</div>';
+            echo '<div class="wpbr-banner ok"><strong>Nothing to merge.</strong> <code>' . esc_html($target) . '</code> already contains everything on <code>' . esc_html($source) . '</code>.</div>';
+            return;
+        }
+        if ($p['fast_forward']) {
+            echo '<div class="wpbr-banner ok"><strong>Clean fast-forward.</strong> Nothing on <code>' . esc_html($target) . '</code> changed since the branches split, so no rules or decisions are needed.</div>';
         }
 
-        echo '<h2>What comes in from ' . esc_html($source) . '</h2>';
-        if (!$p['incoming']) {
-            echo '<p class="muted">Nothing. The branches are identical.</p>';
-        } else {
-            echo '<table class="wpbr-table"><tr><th>Area</th><th class="num">Added</th><th class="num">Changed</th><th class="num">Removed</th><th>Examples</th></tr>';
-            foreach ($p['incoming'] as $t) {
-                echo '<tr><td><strong>' . esc_html($t['label']) . '</strong><br><code>' . esc_html($t['table']) . '</code>' . (!empty($t['approx']) ? '<br><span class="muted">large table: totals include bookkeeping rows</span>' : '') . '</td>';
-                echo '<td class="num add">' . ($t['added'] ?: '') . '</td><td class="num mod">' . ($t['modified'] ?: '') . '</td><td class="num del">' . ($t['deleted'] ?: '') . '</td><td><ul class="samples">';
-                foreach ($t['samples'] as $s) echo '<li class="' . esc_attr($s['type']) . '">' . esc_html($s['text']) . '</li>';
-                echo '</ul></td></tr>';
-            }
-            echo '</table>';
-            echo '<p class="muted">Bookkeeping rows (transients, cron, locks, sessions) are left out of these counts.</p>';
+        // ---- summary tiles
+        echo '<div class="card wpbr-status"><div class="wpbr-stats">';
+        echo self::stat((string) $rows_in, 'rows come in', 'info');
+        echo self::stat((string) count($p['incoming']), count($p['incoming']) === 1 ? 'area touched' : 'areas touched');
+        echo self::stat((string) count($p['auto']), 'resolved by the rules', count($p['auto']) ? 'ok' : '');
+        echo self::stat((string) count($p['human']), count($p['human']) === 1 ? 'needs your decision' : 'need your decision', count($p['human']) ? 'warn' : 'ok');
+        if (!empty($p['attachments'])) echo self::stat((string) $p['attachments'], $p['attachments'] === 1 ? 'attachment, files copied' : 'attachments, files copied', 'info');
+        echo '</div>';
+        if (!empty($p['attachments']) && !($p['uploads_from'] && $p['uploads_to'] && $p['uploads_from'] !== $p['uploads_to'])) {
+            echo '<p class="wpbr-fine warn">The uploads directory for <code>' . esc_html(!$p['uploads_from'] ? $source : $target) . '</code> is not configured, so attachment files will not be copied. Set <code>WPBR_UPLOADS_DIRS</code> in wp-config.php.</p>';
         }
-        if (!empty($p['attachments'])) {
-            if ($p['uploads_from'] && $p['uploads_to'] && $p['uploads_from'] !== $p['uploads_to']) {
-                echo '<p>' . (int) $p['attachments'] . ' attachment(s) come in. Their files will be copied from <code>' . esc_html($p['uploads_from']) . '</code> to <code>' . esc_html($p['uploads_to']) . '</code>.</p>';
-            } else {
-                echo '<div class="notice notice-warning inline"><p>' . (int) $p['attachments'] . ' attachment(s) come in, but the uploads directory for <code>' . esc_html(!$p['uploads_from'] ? $source : $target) . '</code> is not configured. Set <code>WPBR_UPLOADS_DIRS</code> in wp-config.php or the files will have to be copied by hand.</p></div>';
-            }
-        }
+        echo '</div>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field('wpbr_apply', '_wpnonce', true, false);
         echo '<input type="hidden" name="action" value="wpbr_apply"><input type="hidden" name="target" value="' . esc_attr($target) . '"><input type="hidden" name="source" value="' . esc_attr($source) . '">';
         echo '<input type="hidden" name="target_hash" value="' . esc_attr($p['target_hash']) . '"><input type="hidden" name="source_hash" value="' . esc_attr($p['source_hash']) . '">';
 
-        if ($p['auto']) {
-            echo '<h2>Resolved by the rules (' . count($p['auto']) . ')</h2>';
-            foreach ($p['auto'] as $a) {
-                echo '<div class="conflict auto"><h3>' . esc_html($a['label']) . self::class_tag($a['class']) . '</h3><p class="why">' . esc_html($a['reason']) . ' <span class="muted">(' . esc_html($a['resolution']) . ')</span></p></div>';
-            }
-        }
-
-        if (!empty($p['silent'])) {
-            echo '<p class="muted">' . (int) $p['silent'] . ' bookkeeping clash' . ($p['silent'] === 1 ? '' : 'es') . ' (transients, cron, locks) resolved without review.</p>';
-        }
-
+        // ---- decisions first: this is the only part that needs a person
         if ($p['human']) {
-            echo '<h2>Needs your decision (' . count($p['human']) . ')</h2>';
+            echo '<h2>Needs your decision <span class="wpbr-count">' . count($p['human']) . '</span></h2>';
+            echo '<p class="wpbr-sub">Both branches changed the same thing. Pick which version <code>' . esc_html($target) . '</code> should have.</p>';
             foreach ($p['human'] as $h) {
-                echo '<div class="conflict"><h3>' . esc_html($h['label']) . self::class_tag($h['class']) . '</h3><p class="why">' . esc_html($h['reason']) . '</p>';
-                echo '<div class="sides"><div class="side"><h4>On ' . esc_html($target) . ' (keep ours)</h4>' . self::show_row($h, 'ours') . '</div>';
-                echo '<div class="side"><h4>On ' . esc_html($source) . ' (take theirs)</h4>' . self::show_row($h, 'theirs') . '</div></div>';
                 $k = esc_attr($h['key']);
-                echo '<div class="choices"><label><input type="radio" name="decision[' . $k . ']" value="ours" required> Keep ' . esc_html($target) . '</label>';
-                echo '<label><input type="radio" name="decision[' . $k . ']" value="theirs"> Take ' . esc_html($source) . '</label>';
-                if (!empty($h['merged']) && $h['kind'] === 'conflict') {
-                    echo '<label><input type="radio" name="decision[' . $k . ']" value="merged" checked> Combine (' . esc_html($combine_winner) . ' wins the clashing fields)</label>';
-                }
+                echo '<div class="wpbr-decision"><div class="wpbr-decision-head"><h3>' . esc_html($h['label']) . '</h3>' . self::class_tag($h['class']) . '</div><p class="why">' . esc_html($h['reason']) . '</p>';
+                echo '<div class="sides"><div class="side"><h4>On ' . esc_html($target) . '</h4>' . self::show_row($h, 'ours') . '</div>';
+                echo '<div class="side"><h4>On ' . esc_html($source) . '</h4>' . self::show_row($h, 'theirs') . '</div></div>';
+                echo '<div class="wpbr-choices">';
+                $has_merged = !empty($h['merged']) && $h['kind'] === 'conflict';
+                if ($has_merged) echo '<label><input type="radio" name="decision[' . $k . ']" value="merged" checked><span>Combine</span><small>' . esc_html($combine_winner) . ' wins the clashing fields</small></label>';
+                echo '<label><input type="radio" name="decision[' . $k . ']" value="ours"' . ($has_merged ? '' : ' checked') . '><span>Keep ' . esc_html($target) . '</span><small>drop the ' . esc_html($source) . ' version</small></label>';
+                echo '<label><input type="radio" name="decision[' . $k . ']" value="theirs"><span>Take ' . esc_html($source) . '</span><small>replace the ' . esc_html($target) . ' version</small></label>';
                 echo '</div></div>';
             }
-        } elseif ($p['incoming']) {
-            echo '<p class="muted">No clashes need a decision.</p>';
         }
 
-        echo '<p><input type="text" name="message" class="regular-text" placeholder="Snapshot message for this merge" style="width:420px"></p>';
-        $verb = ['pull' => 'Apply: pull into ', 'publish' => 'Apply: publish to ', 'merge' => 'Apply: merge into '][$dir];
-        echo '<p><button class="button button-primary button-hero"' . (!$p['incoming'] ? ' disabled' : '') . '>' . esc_html($verb . $target) . '</button></p></form>';
+        // ---- what comes in
+        echo '<h2>What comes in from ' . esc_html($source) . '</h2>';
+        if (!$p['incoming']) {
+            echo '<p class="wpbr-sub">Nothing. The branches are identical.</p>';
+        } else {
+            echo '<table class="wpbr-table wpbr-incoming"><thead><tr><th>Area</th><th>Changes</th><th>Examples</th></tr></thead><tbody>';
+            foreach ($p['incoming'] as $t) {
+                echo '<tr><td><strong>' . esc_html($t['label']) . '</strong><br><code>' . esc_html($t['table']) . '</code>' . (!empty($t['approx']) ? '<br><span class="wpbr-fine">large table: counts include bookkeeping</span>' : '') . '</td>';
+                echo '<td class="wpbr-nowrap">' . self::chips($t) . '</td><td>';
+                $samples = $t['samples'];
+                $first = array_slice($samples, 0, 3);
+                $rest  = array_slice($samples, 3);
+                echo '<ul class="samples">';
+                foreach ($first as $s) echo '<li class="' . esc_attr($s['type']) . '">' . esc_html($s['text']) . '</li>';
+                echo '</ul>';
+                if ($rest) {
+                    echo '<details class="wpbr-more"><summary>' . count($rest) . ' more</summary><ul class="samples">';
+                    foreach ($rest as $s) echo '<li class="' . esc_attr($s['type']) . '">' . esc_html($s['text']) . '</li>';
+                    echo '</ul></details>';
+                }
+                echo '</td></tr>';
+            }
+            echo '</tbody></table>';
+            echo '<p class="wpbr-fine">Bookkeeping rows (transients, cron, locks, sessions) are left out' . (!empty($p['silent']) ? ', and ' . (int) $p['silent'] . ' bookkeeping clash' . ($p['silent'] === 1 ? ' was' : 'es were') . ' resolved without review' : '') . '.</p>';
+        }
+
+        // ---- rules, collapsed: there for the audit trail, not for reading every time
+        if ($p['auto']) {
+            echo '<details class="wpbr-rules"><summary><h2>Resolved by the rules <span class="wpbr-count">' . count($p['auto']) . '</span></h2></summary>';
+            echo '<table class="wpbr-table"><tbody>';
+            foreach ($p['auto'] as $a) {
+                echo '<tr><td><strong>' . esc_html($a['label']) . '</strong> ' . self::class_tag($a['class']) . '</td><td>' . esc_html($a['reason']) . '</td><td class="wpbr-nowrap wpbr-fine">' . esc_html(self::resolution_word($a['resolution'], $target, $source)) . '</td></tr>';
+            }
+            echo '</tbody></table></details>';
+        }
+
+        // ---- apply bar
+        echo '<div class="card wpbr-applybar">';
+        echo '<input type="text" name="message" class="regular-text" placeholder="Snapshot message, for example: Release 4 published">';
+        echo '<button class="button button-primary button-hero"' . (!$can_apply ? ' disabled' : '') . '>' . esc_html($verbs[$dir] . $target) . '</button>';
+        echo '<span class="wpbr-fine">Runs in one transaction, pinned to the snapshots reviewed here.</span>';
+        echo '</div></form>';
+    }
+
+    // ------------------------------------------------------------------- helpers
+
+    private static function pill(string $branch, bool $is_prod): string
+    {
+        return '<span class="wpbr-pill' . ($is_prod ? ' prod' : '') . '">' . esc_html($branch) . ($is_prod ? ' <span class="wpbr-dim">production</span>' : '') . '</span>';
+    }
+
+    private static function stat(string $value, string $label, string $tone = ''): string
+    {
+        return '<div class="wpbr-stat ' . esc_attr($tone) . '"><div class="n">' . $value . '</div><div class="l">' . esc_html($label) . '</div></div>';
+    }
+
+    private static function chips(array $t): string
+    {
+        $h = '';
+        if ($t['added'])    $h .= '<span class="chip add">+' . (int) $t['added'] . ' added</span>';
+        if ($t['modified']) $h .= '<span class="chip mod">' . (int) $t['modified'] . ' changed</span>';
+        if ($t['deleted'])  $h .= '<span class="chip del">' . (int) $t['deleted'] . ' removed</span>';
+        return $h;
+    }
+
+    private static function resolution_word(string $r, string $target, string $source): string
+    {
+        return match ($r) {
+            'ours'   => 'kept ' . $target,
+            'theirs' => 'took ' . $source,
+            'merged' => 'combined',
+            'delete' => 'removed',
+            default  => $r,
+        };
+    }
+
+    private static function when(string $ts): string
+    {
+        if ($ts === '') return '';
+        $t = strtotime($ts);
+        if (!$t) return $ts;
+        $diff = time() - $t;
+        if ($diff < 90) return 'just now';
+        if ($diff < 3600) return floor($diff / 60) . ' min ago';
+        if ($diff < 86400) return floor($diff / 3600) . ' h ago';
+        return wp_date('M j, H:i', $t);
     }
 
     private static function class_tag(string $class): string
     {
-        return ' <span class="class ' . esc_attr($class) . '">' . esc_html($class) . '</span>';
+        return '<span class="class ' . esc_attr($class) . '">' . esc_html($class) . '</span>';
     }
 
     private static function show_row(array $h, string $side): string
     {
         $row = $h[$side] ?? null;
-        if (!$row) return '<pre class="muted">(does not exist on this branch)</pre>';
+        if (!$row) return '<pre class="wpbr-fine">(does not exist on this branch)</pre>';
         $clashes = $h['clashes'] ?? null;
         $show = [];
         foreach ($row as $col => $val) {
             if ($clashes && !in_array($col, $clashes, true)) continue;
             if (!$clashes && in_array($col, ['option_id'], true)) continue;
-            $show[] = $col . ': ' . (is_null($val) ? 'NULL' : mb_strimwidth(wp_strip_all_tags((string) $val), 0, 400, '…'));
+            $show[] = $col . ': ' . (is_null($val) ? 'NULL' : wp_strip_all_tags((string) $val));
         }
         return '<pre>' . esc_html(implode("\n", $show)) . '</pre>';
     }
-
 }

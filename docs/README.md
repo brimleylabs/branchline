@@ -10,7 +10,7 @@ Version control for the WordPress database. Every environment is a branch. Pull 
 | [Command line](cli.md) | Every command, every flag, what it prints |
 | [Configuration](configuration.md) | Constants, capabilities, filters |
 | [For automation and agents](for-agents.md) | You are a pipeline or a coding agent driving it |
-| [Troubleshooting](troubleshooting.md) | Something said no |
+| [Troubleshooting](troubleshooting.md) | Something said no, or you want to go back to MySQL |
 
 ## The problem in one paragraph
 

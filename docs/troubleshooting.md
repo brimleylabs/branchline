@@ -65,3 +65,28 @@ then `wp branchline rollback <tag_hash>`.
     mysql -h dolt-host -u root -p database -e "CALL dolt_branch('-D', 'stage'); CALL dolt_branch('stage', 'main')"
 
 Everything on the old branch is gone from the branch list but remains reachable by hash until the server garbage-collects.
+
+## I want to leave Branchline
+
+Leaving is a dump and a load. Nothing in the data is specific to Dolt, so the site that comes out is an ordinary WordPress site on an ordinary MySQL or MariaDB.
+
+1. Pick the branch to keep, normally production. Dolt serves a branch under the name `database/branch`, and mysqldump takes that like any database name:
+
+        mysqldump -h dolt-host -P 3306 -u root -p --single-transaction --column-statistics=0 --set-gtid-purged=OFF --no-tablespaces "database/main" > site.sql
+
+    `--column-statistics=0` matters. Recent versions of mysqldump ask the server for histogram statistics, which Dolt does not keep, and write statements MySQL then refuses to load. Older mysqldump and mariadb-dump do not know the flag; leave it off there.
+
+2. Load the file into the new server:
+
+        mysql -h mysql-host -u user -p -e "CREATE DATABASE site CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+        mysql -h mysql-host -u user -p site < site.sql
+
+    Compare a few row counts between the two servers if you want certainty. They match.
+
+3. Point `wp-config.php` at the new server: `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`. Remove `WPBR_PRODUCTION_BRANCH` and `WPBR_UPLOADS_DIRS` if you set them.
+
+4. Deactivate and delete Branchline. The two capabilities it added, `manage_branches` and `publish_to_production`, stay on the administrator role and do nothing. Remove them with `wp cap remove administrator manage_branches publish_to_production` if you prefer a clean role.
+
+Uploaded files need nothing. They were in the uploads directory the whole time. Other branches are not carried across; dump each one you want to keep as its own database. The history stays in Dolt for as long as you keep that server running, and that is the one thing MySQL cannot hold.
+
+A site with fifty tables and three hundred thousand postmeta rows dumps in about a second and loads in under ten. If you change your mind later, `wp branchline import` takes you back.

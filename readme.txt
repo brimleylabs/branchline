@@ -81,6 +81,10 @@ Only if you can point WordPress at a Dolt server you run or rent. Branchline doe
 
 Dolt is a mature open source database used in production by many companies. It speaks the MySQL wire protocol, so WordPress and every plugin talk to it as they would to MySQL. Your database is also a full version history, which is a stronger safety story than a nightly backup.
 
+= Can I go back to plain MySQL? =
+
+Yes, in minutes. A branch is a database as far as mysqldump is concerned. Dump the production branch, load it into MySQL or MariaDB, point wp-config.php at it and delete the plugin. Nothing in the data is specific to Dolt. The one thing you leave behind is the history. The troubleshooting guide has the exact commands, and `wp branchline import` brings you back if you change your mind.
+
 = What happens when both sides change the same thing? =
 
 The rules decide most cases. Structure follows the release, content follows production, bookkeeping is ignored. For pages, fields each side changed differently are combined, and only a change to the same field on both sides reaches you, shown side by side with three choices.

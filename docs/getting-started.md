@@ -13,7 +13,7 @@ Two paths. Most people have a site already, so start there.
 
 ## Path one: move an existing site
 
-Nothing on your current database is changed. The import reads it and writes a copy to Dolt.
+Nothing on your current database is changed. The import reads it and writes a copy to Dolt. The move is also reversible: a branch dumps with mysqldump and loads back into MySQL unchanged. See [I want to leave Branchline](troubleshooting.md#i-want-to-leave-branchline).
 
 1. Install and activate Branchline on the site as it is. The Branchline screen in wp-admin will tell you the site is not on Dolt yet and show the import command with your database name filled in.
 

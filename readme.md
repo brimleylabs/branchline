@@ -23,7 +23,7 @@ Start with [docs/getting-started.md](docs/getting-started.md). The full set:
 | [Command line](docs/cli.md) | Every command and what it prints |
 | [Configuration](docs/configuration.md) | Constants, capabilities, filters |
 | [For automation and agents](docs/for-agents.md) | The safe loop, resolving by key, the skill file |
-| [Troubleshooting](docs/troubleshooting.md) | Messages and what to do |
+| [Troubleshooting](docs/troubleshooting.md) | Messages and what to do, and how to leave |
 
 ## Quick start for an existing site
 
@@ -39,6 +39,8 @@ WordPress 7.1 on Dolt 2.7. WooCommerce installed on a release branch and publish
 ## Requirements
 
 WordPress 6.4+, PHP 8.1+, a Dolt SQL server 1.42+. WP-CLI for the command line parts.
+
+The move is reversible. A branch dumps with mysqldump and loads into MySQL or MariaDB unchanged; see [Leaving Branchline](docs/troubleshooting.md#i-want-to-leave-branchline).
 
 ## License
 

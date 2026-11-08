@@ -34,7 +34,18 @@ Because the database coordinates auto-increment IDs across branches, a post
 created on staging and a post created on production never share an ID, so
 references inside block JSON and serialized data stay valid after a merge.
 
-## Setup
+## Moving an existing site
+
+Install the plugin on the site as it is, on MySQL or MariaDB, and run from it:
+
+    wp branches import --to=mysql://user:password@dolt-host:3306/dbname --branches=stage --dry-run
+    wp branches import --to=mysql://user:password@dolt-host:3306/dbname --branches=stage
+
+It copies every table, checks the row counts, records a baseline snapshot and
+creates the branches you name. Nothing on the source changes. Then point
+wp-config.php at the Dolt server and the site carries on with branches.
+
+## Setup from scratch
 
 1. Run a Dolt SQL server and create the database:
 
@@ -110,6 +121,24 @@ From the command line, for pipelines:
     wp branches merge feature-nav
     wp branches remote | fetch | push | track origin/feature-nav
 
+## Rolling back
+
+Every merge and snapshot is a commit. The Branches screen lists them with a
+"Roll back to this" action, and the command line has `wp branches rollback
+<hash>`. The head you leave is saved as a tag first, listed under Saved
+points, so a rollback can itself be undone.
+
+## Who may do what
+
+Two capabilities, both given to administrators on first load:
+
+- `manage_branches` opens the screen, records snapshots, pulls, merges
+  branches, manages remotes and rolls back a release branch.
+- `publish_to_production` is needed to publish, and to roll production back.
+
+Give editors `manage_branches` to let them pull and merge without being able
+to publish.
+
 ## Filters
 
 - `wpbr_editorial_post_types` array of post types merged field by field (default `['page']`)
@@ -122,20 +151,31 @@ From the command line, for pipelines:
 
 ## Tested with
 
-WordPress 7.1 on Dolt 2.7, three environments, with WooCommerce 11.2 installed
-on the release branch and published to production: 41 new tables, 190 settings,
-products, then orders placed in production pulled back into the release branch
-while the release changed prices and the currency. Clashes resolved by the
-rules: production's price, the release's currency. Nothing lost in either
-direction.
+WordPress 7.1 on Dolt 2.7, three environments plus a laptop clone and a
+remote.
+
+- WooCommerce 11.2 installed on the release branch and published to
+  production: 41 new tables, 190 settings, products. Orders placed in
+  production pulled back while the release changed prices and the currency.
+  Production's price won, the release's currency won.
+- Elementor: the same page layout edited on both branches, heading in
+  production, body and section layout in the release. Merged key by key with
+  all three edits kept and no decision needed.
+- A site on MySQL 8.4 imported onto Dolt, switched over, IDs continuing.
+- 300,000 postmeta rows added on the release branch and published.
+
+Unit tests for the rules and the semantic merge: `php tests/unit.php`.
 
 ## Limits in this version
 
 - Code (themes, plugins) still deploys through git. Branches handles the database.
 - Options and transients WordPress writes while a merge is being reviewed are
   committed as part of the pre-merge snapshot.
-- Files for attachments deleted on the other branch are left in place.
+- Files of attachments removed by a merge are moved to `uploads/wpbr-trash/`,
+  never deleted. Empty that folder yourself.
 - Unique-key collisions between users created on both sides are shown for a decision.
 - Tables with more than 5,000 changed rows are counted from table statistics,
   which include bookkeeping rows; the review screen says so.
-- Single site only. Multisite is untested.
+- Multisite: table prefixes per site are understood, but a multisite install
+  has not been run end to end.
+- Needs a Dolt server you run or rent. Managed WordPress hosts do not offer one yet.

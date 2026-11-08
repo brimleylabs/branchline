@@ -56,7 +56,10 @@ class WPBR_Classifier
     {
         global $wpdb;
         $this->prefix = $wpdb->prefix;
+        $this->base_prefix = $wpdb->base_prefix ?: $wpdb->prefix;
     }
+
+    private string $base_prefix;
 
     public function prefix(): string { return $this->prefix; }
 
@@ -190,8 +193,17 @@ class WPBR_Classifier
         };
     }
 
+    /** "wp_posts" -> "posts"; on multisite "wp_3_posts" -> "posts" too. */
     private function strip(string $table): string
     {
-        return str_starts_with($table, $this->prefix) ? substr($table, strlen($this->prefix)) : $table;
+        // Longest match first: this site's own prefix (wp_3_ on site 3), then any site's
+        // numbered prefix under the base prefix, then the base prefix itself.
+        if (str_starts_with($table, $this->prefix)) {
+            $rest = substr($table, strlen($this->prefix));
+            if (!preg_match('/^\d+_/', $rest)) return $rest;
+        }
+        if (preg_match('/^' . preg_quote($this->base_prefix, '/') . '\d+_(.+)$/', $table, $m)) return $m[1];
+        if (str_starts_with($table, $this->base_prefix)) return substr($table, strlen($this->base_prefix));
+        return $table;
     }
 }

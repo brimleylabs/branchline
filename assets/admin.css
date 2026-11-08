@@ -99,6 +99,9 @@
 .wpbr .wpbr-choices small{color:var(--mute)}
 @media (max-width:782px){.wpbr .sides{grid-template-columns:1fr}}
 
+.wpbr .wpbr-pre{background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:10px 12px;font-size:12px;overflow:auto;white-space:pre}
+.wpbr .button-link{font-size:12px}
+
 /* banners and apply bar */
 .wpbr .wpbr-banner{padding:12px 16px;border-radius:8px;margin:0 0 16px;border:1px solid var(--line);background:#fff}
 .wpbr .wpbr-banner.ok{background:var(--ok-bg);border-color:#b7dfc1}

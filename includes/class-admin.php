@@ -15,12 +15,18 @@ class WPBR_Admin
         add_action('admin_post_wpbr_snapshot', [self::class, 'handle_snapshot']);
         add_action('admin_post_wpbr_apply', [self::class, 'handle_apply']);
         add_action('admin_post_wpbr_remote', [self::class, 'handle_remote']);
+        add_action('admin_post_wpbr_rollback', [self::class, 'handle_rollback']);
         add_action('admin_bar_menu', [self::class, 'admin_bar'], 100);
     }
 
     public static function menu(): void
     {
-        add_menu_page('Branches', 'Branches', 'manage_options', self::SLUG, [self::class, 'render'], 'dashicons-randomize', 59);
+        add_menu_page('Branches', 'Branches', WPBR_CAP_MANAGE, self::SLUG, [self::class, 'render'], 'dashicons-randomize', 59);
+    }
+
+    private static function can_publish(): bool
+    {
+        return current_user_can(WPBR_CAP_PUBLISH);
     }
 
     public static function assets(string $hook): void
@@ -32,7 +38,7 @@ class WPBR_Admin
 
     public static function admin_bar(WP_Admin_Bar $bar): void
     {
-        if (!current_user_can('manage_options')) return;
+        if (!current_user_can(WPBR_CAP_MANAGE)) return;
         $branch = WPBR_Dolt::current_branch();
         $bar->add_node([
             'id' => 'wpbr', 'title' => 'Branch: ' . esc_html($branch) . ($branch === WPBR_PRODUCTION_BRANCH ? ' (production)' : ''),
@@ -50,7 +56,7 @@ class WPBR_Admin
     public static function handle_snapshot(): void
     {
         check_admin_referer('wpbr_snapshot');
-        if (!current_user_can('manage_options')) wp_die('Not allowed.');
+        if (!current_user_can(WPBR_CAP_MANAGE)) wp_die('Not allowed.');
         $branch = WPBR_Dolt::current_branch();
         try {
             $d = new WPBR_Dolt($branch, false);
@@ -67,9 +73,10 @@ class WPBR_Admin
     public static function handle_apply(): void
     {
         check_admin_referer('wpbr_apply');
-        if (!current_user_can('manage_options')) wp_die('Not allowed.');
+        if (!current_user_can(WPBR_CAP_MANAGE)) wp_die('Not allowed.');
         $target = sanitize_text_field(wp_unslash($_POST['target'] ?? ''));
         $source = sanitize_text_field(wp_unslash($_POST['source'] ?? ''));
+        if ($target === WPBR_PRODUCTION_BRANCH && !self::can_publish()) wp_die('Publishing to production needs the publish_to_production capability.');
         $pinned = ['target_hash' => sanitize_text_field(wp_unslash($_POST['target_hash'] ?? '')), 'source_hash' => sanitize_text_field(wp_unslash($_POST['source_hash'] ?? ''))];
         $decisions = [];
         foreach ((array) ($_POST['decision'] ?? []) as $k => $v) {
@@ -92,7 +99,7 @@ class WPBR_Admin
     public static function handle_remote(): void
     {
         check_admin_referer('wpbr_remote');
-        if (!current_user_can('manage_options')) wp_die('Not allowed.');
+        if (!current_user_can(WPBR_CAP_MANAGE)) wp_die('Not allowed.');
         $op     = sanitize_text_field(wp_unslash($_POST['op'] ?? ''));
         $name   = sanitize_text_field(wp_unslash($_POST['name'] ?? 'origin'));
         $branch = WPBR_Dolt::current_branch();
@@ -143,6 +150,28 @@ class WPBR_Admin
         exit;
     }
 
+    /** Roll this branch back to an earlier snapshot. The current head is kept as a tag. */
+    public static function handle_rollback(): void
+    {
+        check_admin_referer('wpbr_rollback');
+        if (!current_user_can(WPBR_CAP_MANAGE)) wp_die('Not allowed.');
+        $branch = WPBR_Dolt::current_branch();
+        if ($branch === WPBR_PRODUCTION_BRANCH && !self::can_publish()) wp_die('Rolling production back needs the publish_to_production capability.');
+        $hash = preg_replace('/[^a-z0-9]/', '', (string) wp_unslash($_POST['hash'] ?? ''));
+        try {
+            $d = new WPBR_Dolt($branch, false);
+            $tag = $d->rollback_to($hash);
+            $head = $d->head_hash();
+            $d->close();
+            wp_cache_flush();
+            $msg = sprintf('%s rolled back to %s. The previous head is saved as %s, so nothing is lost.', $branch, substr($head, 0, 8), $tag);
+        } catch (Throwable $e) {
+            $msg = 'Rollback failed: ' . $e->getMessage();
+        }
+        wp_safe_redirect(self::url(['notice' => rawurlencode($msg)]));
+        exit;
+    }
+
     /** A one-button form posting to the remote handler. */
     private static function remote_form(string $op, array $fields, string $label, string $class = 'button button-small'): string
     {
@@ -156,10 +185,16 @@ class WPBR_Admin
 
     public static function render(): void
     {
-        if (!current_user_can('manage_options')) return;
+        if (!current_user_can(WPBR_CAP_MANAGE)) return;
         echo '<div class="wrap wpbr">';
         if (!WPBR_Dolt::is_dolt()) {
-            echo '<h1>Branches</h1><div class="notice notice-error"><p>This site is not running on a Dolt database. Branches needs one. See the readme for setup.</p></div></div>';
+            echo '<h1>Branches</h1>';
+            echo '<div class="card"><h2>This site is not on Dolt yet</h2>';
+            echo '<p>Branches needs the database on a Dolt server, which speaks MySQL and adds branching. Moving an existing site takes one command, run from this site:</p>';
+            echo '<pre class="wpbr-pre">wp branches import --to=mysql://USER:PASSWORD@DOLT_HOST:3306/' . esc_html(DB_NAME) . ' --branches=stage</pre>';
+            echo '<p>It copies every table, checks the row counts, records a baseline snapshot and creates the branches you name. Then point wp-config.php at the Dolt server:</p>';
+            echo '<pre class="wpbr-pre">define(\'DB_HOST\', \'DOLT_HOST:3306\');\ndefine(\'DB_NAME\', \'' . esc_html(DB_NAME) . '\');            // production\ndefine(\'DB_NAME\', \'' . esc_html(DB_NAME) . '/stage\');      // on the staging site</pre>';
+            echo '<p class="wpbr-fine">Add <code>--dry-run</code> first to see the table list and sizes without copying anything.</p></div></div>';
             return;
         }
         if (!empty($_GET['notice'])) {
@@ -198,7 +233,9 @@ class WPBR_Admin
         }
         $remotes = $d->remotes();
         $remote_branches = $remotes ? $d->remote_branches() : [];
+        $tags = $d->tags();
         $d->close();
+        $may_rollback = !$is_prod || self::can_publish();
 
         echo '<h1>Branches ' . self::pill($branch, $is_prod) . '</h1>';
         echo '<p class="wpbr-sub">This site reads and writes the <code>' . esc_html($branch) . '</code> branch of database <code>' . esc_html(WPBR_Dolt::base_database()) . '</code>. Production is <code>' . esc_html(WPBR_PRODUCTION_BRANCH) . '</code>.</p>';
@@ -215,8 +252,10 @@ class WPBR_Admin
         echo '</div>';
         echo '<div class="wpbr-actionbar">';
         if (!$is_prod) {
-            echo '<a class="button button-primary" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'publish'])) . '">Publish to production</a>';
-            echo '<a class="button" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'pull'])) . '">Pull from production</a>';
+            if (self::can_publish()) {
+                echo '<a class="button button-primary" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'publish'])) . '">Publish to production</a>';
+            }
+            echo '<a class="button' . (self::can_publish() ? '' : ' button-primary') . '" href="' . esc_url(self::url(['view' => 'review', 'dir' => 'pull'])) . '">Pull from production</a>';
         }
         echo '<details class="wpbr-reveal"><summary class="button">Record snapshot</summary>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wpbr-inline">' . wp_nonce_field('wpbr_snapshot', '_wpnonce', true, false) . '<input type="hidden" name="action" value="wpbr_snapshot">';
@@ -290,12 +329,28 @@ class WPBR_Admin
 
         echo '</div>'; // cols
 
-        // ---- activity
+        // ---- activity, with a way back
         echo '<div class="card"><h2>Recent snapshots on ' . esc_html($branch) . '</h2><table class="wpbr-table wpbr-log"><tbody>';
-        foreach ($log as $c) {
-            echo '<tr><td class="wpbr-nowrap"><code>' . esc_html(substr($c['commit_hash'], 0, 8)) . '</code></td><td class="wpbr-nowrap wpbr-fine">' . esc_html(self::when($c['date'])) . '</td><td>' . esc_html($c['message']) . '</td></tr>';
+        foreach ($log as $i => $c) {
+            $restore = '';
+            if ($i > 0 && $may_rollback) {
+                $restore = '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wpbr-btnform">' . wp_nonce_field('wpbr_rollback', '_wpnonce', true, false) . '<input type="hidden" name="action" value="wpbr_rollback"><input type="hidden" name="hash" value="' . esc_attr($c['commit_hash']) . '"><button class="button-link">Roll back to this</button></form>';
+            } elseif ($i === 0) {
+                $restore = '<span class="wpbr-tag">current</span>';
+            }
+            echo '<tr><td class="wpbr-nowrap"><code>' . esc_html(substr($c['commit_hash'], 0, 8)) . '</code></td><td class="wpbr-nowrap wpbr-fine">' . esc_html(self::when($c['date'])) . '</td><td>' . esc_html($c['message']) . '</td><td class="right wpbr-nowrap">' . $restore . '</td></tr>';
         }
-        echo '</tbody></table></div>';
+        echo '</tbody></table>';
+        echo '<p class="wpbr-fine">Rolling back moves this branch to an earlier snapshot. The head you leave is saved as a tag, so it can be restored the same way.</p>';
+        if ($tags) {
+            echo '<h3>Saved points</h3><table class="wpbr-table wpbr-log"><tbody>';
+            foreach ($tags as $t) {
+                $restore = $may_rollback ? '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wpbr-btnform">' . wp_nonce_field('wpbr_rollback', '_wpnonce', true, false) . '<input type="hidden" name="action" value="wpbr_rollback"><input type="hidden" name="hash" value="' . esc_attr($t['tag_hash']) . '"><button class="button-link">Restore</button></form>' : '';
+                echo '<tr><td class="wpbr-nowrap"><code>' . esc_html(substr($t['tag_hash'], 0, 8)) . '</code></td><td class="wpbr-nowrap wpbr-fine">' . esc_html(self::when($t['date'])) . '</td><td>' . esc_html($t['tag_name']) . '<br><span class="wpbr-fine">' . esc_html((string) $t['message']) . '</span></td><td class="right">' . $restore . '</td></tr>';
+            }
+            echo '</tbody></table>';
+        }
+        echo '</div>';
     }
 
     // -------------------------------------------------------------------- review
@@ -318,6 +373,10 @@ class WPBR_Admin
         } else {
             if ($branch === WPBR_PRODUCTION_BRANCH) {
                 echo '<h1>Branches</h1><div class="notice notice-error"><p>Pull and publish run from a release branch.</p></div>';
+                return;
+            }
+            if ($dir === 'publish' && !self::can_publish()) {
+                echo '<h1>Branches</h1><div class="notice notice-error"><p>Publishing to production needs the publish_to_production capability. Ask an administrator.</p></div>';
                 return;
             }
             [$target, $source] = $dir === 'pull' ? [$branch, WPBR_PRODUCTION_BRANCH] : [WPBR_PRODUCTION_BRANCH, $branch];

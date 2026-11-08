@@ -20,6 +20,23 @@ if (!defined('WPBR_PRODUCTION_BRANCH')) {
     define('WPBR_PRODUCTION_BRANCH', 'main');
 }
 
+// Capabilities. Administrators get both on first load; give editors manage_branches
+// to let them pull and merge without being able to publish to production.
+define('WPBR_CAP_MANAGE', 'manage_branches');
+define('WPBR_CAP_PUBLISH', 'publish_to_production');
+
+function wpbr_ensure_capabilities(): void
+{
+    if (get_option('wpbr_caps_version') === '1') return;
+    $role = get_role('administrator');
+    if ($role) {
+        $role->add_cap(WPBR_CAP_MANAGE);
+        $role->add_cap(WPBR_CAP_PUBLISH);
+    }
+    update_option('wpbr_caps_version', '1', false);
+}
+add_action('init', 'wpbr_ensure_capabilities');
+
 require_once WPBR_DIR . '/includes/class-dolt.php';
 require_once WPBR_DIR . '/includes/class-classifier.php';
 require_once WPBR_DIR . '/includes/class-serialized-merge.php';
@@ -32,6 +49,7 @@ if (is_admin()) {
 }
 
 if (defined('WP_CLI') && WP_CLI) {
+    require_once WPBR_DIR . '/includes/class-import.php';
     require_once WPBR_DIR . '/includes/class-cli.php';
     WP_CLI::add_command('branches', 'WPBR_CLI');
 }

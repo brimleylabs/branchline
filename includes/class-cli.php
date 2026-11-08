@@ -13,6 +13,8 @@
  *   fetch [--remote=origin]                   Fetch remote branches
  *   push [--remote=origin] [--branch=<b>]     Push a branch (default: this one)
  *   track <remote>/<branch> [--as=<name>]     Create or update a local branch from a remote one
+ *   log [--count=20]                          Snapshots on this branch
+ *   rollback <hash> [--yes]                   Move this branch back to a snapshot (current head kept as a tag)
  */
 defined('ABSPATH') || exit;
 
@@ -142,6 +144,83 @@ class WPBR_CLI
         $msg = $t->pull_remote($remote, $rbranch);
         $t->close();
         WP_CLI::success("Branch $local updated from $remote/$rbranch. " . trim(str_replace('\n', ' ', $msg)));
+    }
+
+    /**
+     * Move this site's database onto a Dolt server.
+     *
+     * wp branches import --to=mysql://user:pass@dolt-host:3306/dbname [--from=mysql://...] [--branches=stage,dev] [--batch=1000] [--replace] [--dry-run] [--yes]
+     *
+     * --from defaults to the database this site is running on. Nothing on the source is changed.
+     */
+    public function import($args, $assoc): void
+    {
+        if (empty($assoc['to'])) WP_CLI::error('Give --to=mysql://user:password@host:port/database for the Dolt server.');
+        try {
+            $to   = WPBR_Import::parse_dsn($assoc['to']);
+            $from = !empty($assoc['from']) ? WPBR_Import::parse_dsn($assoc['from']) : WPBR_Import::current_site();
+            $imp  = new WPBR_Import($from, $to);
+        } catch (Throwable $e) {
+            WP_CLI::error($e->getMessage());
+        }
+        if (!$imp->target_is_dolt()) WP_CLI::error('The target is not a Dolt server.');
+        $plan = $imp->plan();
+        $rows = array_sum(array_column($plan, 'rows'));
+        $bytes = array_sum(array_column($plan, 'bytes'));
+        WP_CLI::line(sprintf('Source: %s:%d/%s   %d tables, %s rows, %s', $from['host'], $from['port'], $from['db'], count($plan), number_format($rows), size_format($bytes)));
+        WP_CLI::line(sprintf('Target: %s:%d/%s (Dolt)', $to['host'], $to['port'], $to['db']));
+        if (!empty($assoc['dry-run'])) {
+            WP_CLI\Utils\format_items('table', array_map(fn($p) => ['table' => $p['table'], 'rows' => $p['rows'], 'size' => size_format($p['bytes'])], $plan), ['table', 'rows', 'size']);
+            $imp->close();
+            return;
+        }
+        if (empty($assoc['yes'])) WP_CLI::confirm('Copy these tables to the Dolt server?');
+        $t0 = microtime(true);
+        try {
+            $results = $imp->run(fn($l) => WP_CLI::line($l), (int) ($assoc['batch'] ?? 1000), !empty($assoc['replace']), array_filter(explode(',', (string) ($assoc['branches'] ?? ''))));
+        } catch (Throwable $e) {
+            $imp->close();
+            WP_CLI::error($e->getMessage());
+        }
+        $imp->close();
+        $bad = array_filter($results, fn($r) => !$r['ok']);
+        WP_CLI::line(sprintf('Done in %.1f s. %d tables, %s rows.', microtime(true) - $t0, count($results), number_format(array_sum(array_column($results, 'target')))));
+        if ($bad) {
+            WP_CLI\Utils\format_items('table', $bad, ['table', 'source', 'target']);
+            WP_CLI::error(count($bad) . ' table(s) have a different row count on the target. Check them before switching.');
+        }
+        WP_CLI::success('Every table matches. Now point wp-config.php at the Dolt server:');
+        WP_CLI::line(sprintf("  define('DB_HOST', '%s:%d');", $to['host'], $to['port']));
+        WP_CLI::line(sprintf("  define('DB_NAME', '%s');          // production", $to['db']));
+        foreach (array_filter(explode(',', (string) ($assoc['branches'] ?? ''))) as $b) {
+            WP_CLI::line(sprintf("  define('DB_NAME', '%s/%s');   // on the %s site", $to['db'], trim($b), trim($b)));
+        }
+    }
+
+    /** wp branches log [--count=20] */
+    public function log($args, $assoc): void
+    {
+        $d = new WPBR_Dolt(WPBR_Dolt::current_branch());
+        $rows = array_map(fn($c) => ['snapshot' => substr($c['commit_hash'], 0, 8), 'hash' => $c['commit_hash'], 'when' => substr($c['date'], 0, 16), 'message' => $c['message']], $d->log((int) ($assoc['count'] ?? 20)));
+        $d->close();
+        $format = $assoc['format'] ?? 'table';
+        WP_CLI\Utils\format_items($format, $rows, $format === 'table' ? ['snapshot', 'when', 'message'] : ['hash', 'when', 'message']);
+    }
+
+    /** wp branches rollback <hash> [--yes]: move this branch back to a snapshot; the current head is kept as a tag. */
+    public function rollback($args, $assoc): void
+    {
+        $hash = $args[0] ?? '';
+        if ($hash === '') WP_CLI::error('Give the snapshot hash to roll back to. See: wp branches log');
+        $branch = WPBR_Dolt::current_branch();
+        $d = new WPBR_Dolt($branch, false);
+        if (!$d->has_commit($hash)) { $d->close(); WP_CLI::error("Snapshot $hash is not in the history of $branch."); }
+        if (empty($assoc['yes'])) WP_CLI::confirm("Roll $branch back to $hash? The current head is saved as a tag first.");
+        $tag = $d->rollback_to($hash);
+        $head = $d->head_hash();
+        $d->close();
+        wp_cache_flush();
+        WP_CLI::success("$branch is now at $head. Previous head saved as tag $tag.");
     }
 
     public function preview($args, $assoc): void

@@ -280,6 +280,42 @@ class WPBR_Dolt
         try { $this->rollback(); } catch (Throwable $e) {}
     }
 
+    // ---------------------------------------------------------------- rollback
+
+    /** Is this commit in the history of this branch? */
+    public function has_commit(string $hash): bool
+    {
+        return (bool) $this->var('SELECT 1 FROM dolt_log WHERE commit_hash = ? LIMIT 1', [$hash]);
+    }
+
+    public function tags(): array
+    {
+        return $this->q('SELECT tag_name, tag_hash, date, message FROM dolt_tags ORDER BY date DESC');
+    }
+
+    public function tag(string $name, string $ref, string $message = ''): void
+    {
+        $this->exec('CALL dolt_tag(?, ?, ?, ?)', ['-m', $message ?: $name, $name, $ref]);
+        $this->commit();
+    }
+
+    /**
+     * Move this branch back to an earlier snapshot. The current head is first saved as a
+     * tag so nothing becomes unreachable. Returns the tag name.
+     */
+    public function rollback_to(string $hash): string
+    {
+        if (!$this->has_commit($hash)) {
+            throw new RuntimeException("Snapshot $hash is not in the history of " . $this->branch . '.');
+        }
+        $this->snapshot('Unsaved changes before rollback (' . $this->branch . ')');
+        $tag = 'before-rollback-' . $this->branch . '-' . gmdate('Ymd-His');
+        $this->tag($tag, $this->head_hash(), 'Head of ' . $this->branch . ' before rolling back to ' . substr($hash, 0, 8));
+        $this->exec('CALL dolt_reset(?, ?)', ['--hard', $hash]);
+        $this->commit();
+        return $tag;
+    }
+
     // ----------------------------------------------------------------- remotes
     // A remote is another Dolt server, DoltHub, DoltLab, a bucket or a directory.
     // Developers clone it to their laptops and push branches back, like git.

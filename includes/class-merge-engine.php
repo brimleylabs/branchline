@@ -218,7 +218,9 @@ class WPBR_Merge_Engine
     {
         try {
             $paths = WPBR_Files::incoming_paths($this->t, $base, $source_hash);
-            return WPBR_Files::copy($paths, $this->source, $this->target);
+            $r = WPBR_Files::copy($paths, $this->source, $this->target);
+            $gone = WPBR_Files::removed_paths($this->t, $base, $source_hash);
+            return $r + WPBR_Files::trash($gone, $this->target);
         } catch (Throwable $e) {
             return ['attachments' => 0, 'copied' => 0, 'unchanged' => 0, 'missing' => [], 'skipped' => $e->getMessage()];
         }

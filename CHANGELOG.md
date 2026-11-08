@@ -15,5 +15,6 @@ First public release.
 - Rollback to any snapshot; the head you leave is saved as a tag and listed under Saved points.
 - Capabilities `manage_branches` and `publish_to_production`.
 - `wp branchline import` moves an existing MySQL or MariaDB site onto a Dolt server with a row count check and a baseline snapshot.
-- Multisite numbered table prefixes understood by the rules.
+- Multisite: numbered table prefixes and the network tables understood by the rules, a sunrise file in `extras/` to map a staging host onto the stored network domain.
+- Translation ready, text domain `branchline`.
 - Unit tests for the rules and the semantic merge.

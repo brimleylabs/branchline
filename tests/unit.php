@@ -189,6 +189,68 @@ ok(
 );
 same( $c->table_label( 'wp_options' ), 'Settings', 'labels core tables' );
 same( $c->table_label( 'wp_wc_orders' ), 'Plugin data: wc_orders', 'labels plugin tables' );
+ok(
+	str_contains(
+		$c->describe(
+			'wp_posts',
+			array(
+				'post_type'  => 'wp_navigation',
+				'post_title' => 'Header',
+				'ID'         => 9,
+			)
+		),
+		'Navigation menu "Header" (#9)'
+	),
+	'describes core post types by a readable name'
+);
+
+echo "Multisite network tables\n";
+same( $c->classify( 'wp_sitemeta', array( 'meta_key' => 'site_admins' ) ), 'structure', 'a network setting is structure' );
+same( $c->classify( 'wp_sitemeta', array( 'meta_key' => '_site_transient_update_plugins' ) ), 'noise', 'a network transient is noise' );
+same( $c->classify( 'wp_sitemeta', array( 'meta_key' => 'blog_count' ) ), 'content', 'blog_count follows production' );
+same( $c->classify( 'wp_sitemeta', array( 'meta_key' => 'user_count' ) ), 'content', 'network user_count follows production' );
+same( $c->classify( 'wp_blogs', array( 'blog_id' => 2 ) ), 'structure', 'a site row is structure' );
+same( $c->classify( 'wp_site', array( 'id' => 1 ) ), 'structure', 'the network row is structure' );
+same( $c->classify( 'wp_blogmeta', array( 'meta_key' => 'x' ) ), 'structure', 'site meta is structure' );
+same( $c->classify( 'wp_signups', array( 'signup_id' => 1 ) ), 'content', 'a signup is content' );
+same( $c->classify( 'wp_registration_log', array( 'ID' => 1 ) ), 'noise', 'the registration log is noise' );
+same( $c->table_label( 'wp_sitemeta' ), 'Network settings', 'labels network settings' );
+same( $c->table_label( 'wp_blogs' ), 'Sites', 'labels the sites table' );
+same( $c->describe( 'wp_sitemeta', array( 'meta_key' => 'site_name' ) ), 'Network setting "site_name"', 'describes a network setting' );
+same(
+	$c->describe(
+		'wp_blogs',
+		array(
+			'blog_id' => 2,
+			'domain'  => 'example.com',
+			'path'    => '/shop/',
+		)
+	),
+	'Site "example.com/shop/" (#2)',
+	'describes a site'
+);
+ok( in_array( 'last_updated', WPBR_Classifier::TIMESTAMP_MAX_COLUMNS, true ), 'a site last_updated clash takes the newest' );
+same( $c->classify( 'wp_2_comments', array( 'comment_ID' => 1 ) ), 'content', 'subsite comments are content' );
+same(
+	$c->classify(
+		'wp_2_posts',
+		array(
+			'post_type'   => 'page',
+			'post_status' => 'publish',
+		)
+	),
+	'editorial',
+	'subsite pages are editorial'
+);
+same( $c->table_label( 'wp_2_options' ), 'Settings', 'subsite tables get the core label' );
+// From inside site 2, whose own prefix is wp_2_, both numbered and base tables resolve.
+$GLOBALS['wpdb']->prefix = 'wp_2_';
+$c2                      = new WPBR_Classifier( new WPBR_Dolt() );
+same( $c2->table_label( 'wp_2_posts' ), 'Posts, pages and templates', 'own numbered prefix resolves' );
+same( $c2->table_label( 'wp_posts' ), 'Posts, pages and templates', 'base prefix resolves from a subsite' );
+same( $c2->table_label( 'wp_3_posts' ), 'Posts, pages and templates', 'another site prefix resolves from a subsite' );
+same( $c2->classify( 'wp_sitemeta', array( 'meta_key' => 'site_admins' ) ), 'structure', 'network tables resolve from a subsite' );
+$GLOBALS['wpdb']->prefix = 'wp_';
 
 echo "Serialized merge\n";
 $base   = serialize(

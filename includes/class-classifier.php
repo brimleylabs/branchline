@@ -67,7 +67,7 @@ class WPBR_Classifier {
 		'action_scheduler_migration_status',
 	);
 	// Production is the source of truth for these even though they live in wp_options.
-	private const CONTENT_OPTIONS     = array( 'user_count', 'post_count' );
+	private const CONTENT_OPTIONS     = array( 'user_count', 'post_count', 'blog_count' );
 	private const NOISE_META_KEYS     = array( '_edit_lock', '_edit_last', '_wp_old_slug', '_wp_old_date', '_wp_trash_meta_status', '_wp_trash_meta_time', '_wp_trash_meta_comments_status', '_wp_desired_post_slug' );
 	private const NOISE_USERMETA_KEYS = array(
 		'session_tokens',
@@ -90,11 +90,30 @@ class WPBR_Classifier {
 		'woocommerce_admin_task_list_tracked_started_tasks',
 	);
 	/** Whole tables that are bookkeeping (table name without prefix). */
-	private const NOISE_TABLES = array( 'actionscheduler_actions', 'actionscheduler_claims', 'actionscheduler_groups', 'actionscheduler_logs', 'wc_rate_limits', 'wc_admin_note_actions', 'wc_admin_notes' );
+	private const NOISE_TABLES = array( 'actionscheduler_actions', 'actionscheduler_claims', 'actionscheduler_groups', 'actionscheduler_logs', 'wc_rate_limits', 'wc_admin_note_actions', 'wc_admin_notes', 'registration_log', 'blog_versions' );
 
 	/** Columns whose clashes are resolved mechanically rather than treated as edits. */
-	public const TIMESTAMP_MAX_COLUMNS = array( 'post_modified', 'post_modified_gmt' );
+	public const TIMESTAMP_MAX_COLUMNS = array( 'post_modified', 'post_modified_gmt', 'last_updated' );
 	public const COUNTER_COLUMNS       = array( 'comment_count', 'count' );
+
+	/** Readable names for the post types WordPress itself creates. */
+	private const POST_TYPE_LABELS = array(
+		'post'                => 'Post',
+		'page'                => 'Page',
+		'attachment'          => 'Attachment',
+		'revision'            => 'Revision',
+		'nav_menu_item'       => 'Menu item',
+		'wp_navigation'       => 'Navigation menu',
+		'wp_template'         => 'Template',
+		'wp_template_part'    => 'Template part',
+		'wp_global_styles'    => 'Global styles',
+		'wp_block'            => 'Pattern',
+		'wp_font_face'        => 'Font face',
+		'wp_font_family'      => 'Font family',
+		'customize_changeset' => 'Customizer changeset',
+		'custom_css'          => 'Custom CSS',
+		'oembed_cache'        => 'Embed cache',
+	);
 
 	private string $prefix;
 	private array $post_type_cache = array();
@@ -126,6 +145,14 @@ class WPBR_Classifier {
 			'termmeta'           => 'Term fields',
 			'term_relationships' => 'Term assignments',
 			'links'              => 'Links',
+			// Multisite network tables.
+			'site'               => 'Network',
+			'sitemeta'           => 'Network settings',
+			'blogs'              => 'Sites',
+			'blogmeta'           => 'Site fields',
+			'signups'            => 'Signups',
+			'registration_log'   => 'Registration log',
+			'blog_versions'      => 'Site versions',
 		);
 		$label  = $labels[ $t ] ?? ( 'Plugin data: ' . $t );
 		return apply_filters( 'wpbr_table_label', $label, $table );
@@ -153,6 +180,11 @@ class WPBR_Classifier {
 			'termmeta'           => self::CONTENT,
 			'term_relationships' => $this->classify_post_id( (int) ( $row['object_id'] ?? 0 ) ),
 			'links'              => self::STRUCTURE,
+			// Multisite: network settings follow the same rules as site settings; the
+			// network, its sites and their fields are structure; signups are content.
+			'sitemeta'           => $this->classify_option( (string) ( $row['meta_key'] ?? '' ) ),
+			'site', 'blogs', 'blogmeta' => self::STRUCTURE,
+			'signups'            => self::CONTENT,
 			default              => self::CONTENT,
 		};
 		return apply_filters( 'wpbr_row_class', $class, $table, $row );
@@ -220,16 +252,29 @@ class WPBR_Classifier {
 		$t = $this->strip( $table );
 		return match ( $t ) {
 			'options'  => 'Setting "' . ( $row['option_name'] ?? '?' ) . '"',
-			'posts'    => ucfirst( str_replace( '_', ' ', (string) ( $row['post_type'] ?? 'post' ) ) ) . ' "' . ( $row['post_title'] ?: ( $row['post_name'] ?? '' ) ) . '" (#' . ( $row['ID'] ?? '?' ) . ')',
+			'posts'    => $this->post_type_label( (string) ( $row['post_type'] ?? 'post' ) ) . ' "' . ( $row['post_title'] ?: ( $row['post_name'] ?? '' ) ) . '" (#' . ( $row['ID'] ?? '?' ) . ')',
+			'sitemeta' => 'Network setting "' . ( $row['meta_key'] ?? '?' ) . '"',
+			'site'     => 'Network "' . ( $row['domain'] ?? '?' ) . ( $row['path'] ?? '' ) . '"',
+			'blogs'    => 'Site "' . ( $row['domain'] ?? '?' ) . ( $row['path'] ?? '' ) . '" (#' . ( $row['blog_id'] ?? '?' ) . ')',
+			'blogmeta' => 'Site field "' . ( $row['meta_key'] ?? '?' ) . '" for site #' . ( $row['blog_id'] ?? '?' ),
+			'signups'  => 'Signup "' . ( $row['user_login'] ?? ( $row['user_email'] ?? '?' ) ) . '"',
 			'postmeta' => 'Field "' . ( $row['meta_key'] ?? '?' ) . '" on post #' . ( $row['post_id'] ?? '?' ),
 			'comments' => 'Comment #' . ( $row['comment_ID'] ?? '?' ) . ' by ' . ( $row['comment_author'] ?? '?' ),
 			'users'    => 'User "' . ( $row['user_login'] ?? '?' ) . '"',
 			'usermeta' => 'User field "' . ( $row['meta_key'] ?? '?' ) . '" for user #' . ( $row['user_id'] ?? '?' ),
 			'terms'    => 'Term "' . ( $row['name'] ?? '?' ) . '"',
-			'term_taxonomy' => ucfirst( (string) ( $row['taxonomy'] ?? 'term' ) ) . ' #' . ( $row['term_taxonomy_id'] ?? '?' ),
+			'term_taxonomy' => ucfirst( str_replace( '_', ' ', (string) ( $row['taxonomy'] ?? 'term' ) ) ) . ' #' . ( $row['term_taxonomy_id'] ?? '?' ),
 			'term_relationships' => 'Term ' . ( $row['term_taxonomy_id'] ?? '?' ) . ' on object #' . ( $row['object_id'] ?? '?' ),
 			default    => $this->table_label( $table ) . ' ' . $this->row_handle( $row ),
 		};
+	}
+
+	/** "wp_navigation" -> "Navigation menu"; unknown types become "My type". */
+	public function post_type_label( string $type ): string {
+		if ( isset( self::POST_TYPE_LABELS[ $type ] ) ) {
+			return self::POST_TYPE_LABELS[ $type ];
+		}
+		return ucfirst( str_replace( '_', ' ', $type ?: 'post' ) );
 	}
 
 	/** "#123" from the first id-like column, else the first short scalar, so plugin rows are tellable apart. */
@@ -253,6 +298,7 @@ class WPBR_Classifier {
 		return match ( $t ) {
 			'posts'   => array( 'post_title', 'post_content', 'post_excerpt', 'post_status', 'post_name', 'post_parent', 'menu_order', 'post_type', 'post_author', 'post_date', 'post_date_gmt', 'post_password', 'comment_status', 'ping_status', 'guid', 'post_mime_type' ),
 			'options' => array( 'option_value', 'autoload' ),
+			'blogs'   => array( 'domain', 'path', 'public', 'archived', 'mature', 'spam', 'deleted', 'lang_id' ),
 			default   => array(),
 		};
 	}

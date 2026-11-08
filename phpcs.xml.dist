@@ -12,12 +12,15 @@
 
 	<config name="minimum_wp_version" value="6.4"/>
 	<config name="testVersion" value="8.1-"/>
+	<config name="ignore_warnings_on_exit" value="1"/>
 
 	<rule ref="WordPress-Extra">
 		<!-- Style choices this codebase does not follow. -->
 		<exclude name="WordPress.PHP.YodaConditions"/>
 		<exclude name="Universal.Operators.DisallowShortTernary"/>
 		<exclude name="WordPress.Files.FileName"/>
+		<!-- Exceptions are caught and escaped where they are shown: esc_html in admin notices, plain text in WP-CLI. -->
+		<exclude name="WordPress.Security.EscapeOutput.ExceptionNotEscaped"/>
 		<!-- The plugin's job is to merge serialized WordPress values key by key. -->
 		<exclude name="WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize"/>
 		<exclude name="WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize"/>

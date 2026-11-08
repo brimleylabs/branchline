@@ -79,4 +79,20 @@ Branchline sets what it needs per session. Two server-level settings matter for 
 
 ## Multisite
 
-Numbered table prefixes (`wp_3_posts`) are understood by the rules. A multisite install has not been run end to end. Treat it as experimental and test a merge on a copy first.
+A multisite network works the same way: one Dolt database, one branch per environment, every site in the network on the same branch. The rules understand numbered table prefixes (`wp_3_posts` follows the same rules as `wp_posts`) and the network tables: network settings in `sitemeta` follow the option rules, the `site`, `blogs` and `blogmeta` tables are structure, `signups` is content, and `registration_log` and `blog_versions` are bookkeeping. Branchline appears in each site's admin menu, and the capabilities are granted to the administrator role of each site.
+
+Verified: a subdirectory network with two sites, pages and settings changed on the release branch, posts and comments arriving in production, pulled and published with every row landing where the rules say.
+
+### The one thing multisite needs
+
+The network stores its domain once, in the `site` and `blogs` tables, and every branch carries the same value. A single-site install points staging at its own host with `WP_HOME` and `WP_SITEURL`. A network cannot, and rewriting the stored host on the staging branch would publish the staging host back to production, because those rows are structure.
+
+So instead of rewriting the rows, map the host at request time. Copy `extras/sunrise-multisite.php` from the plugin to `wp-content/sunrise.php` on every environment that is not production, and in that environment's `wp-config.php`:
+
+    define('SUNRISE', true);
+    define('WPBR_MS_CANONICAL_HOST', 'www.example.com');   // the host stored in the network tables
+    define('WPBR_MS_HOST', 'stage.example.com');           // this environment's host
+
+The file resolves incoming requests for the staging host against the stored host and swaps the host in every URL WordPress builds. Production needs nothing. Links typed into content keep whatever host was typed, which is what you want: content is content.
+
+Setting up the staging environment is then: copy the production install's files, set `DB_NAME` to `database/stage`, add the three lines above. If your network's domain was created with a port number in it, also set `COOKIE_DOMAIN` to an empty string, since a port is not a valid cookie domain.

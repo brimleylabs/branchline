@@ -103,7 +103,7 @@ Yes. Every merge is a snapshot. Roll back to any snapshot from the Branchline sc
 
 = Does it work with multisite? =
 
-Numbered table prefixes are understood by the rules. A multisite install has not been run end to end yet, so treat it as experimental.
+Yes. Every site in the network lives on the same branch, numbered table prefixes follow the same rules as the main site, and the network tables have rules of their own. Staging needs one small file to map its host onto the stored network domain at request time, shipped in the plugin's extras folder and explained in the configuration guide.
 
 = How do developers work on laptops? =
 

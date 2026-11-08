@@ -253,8 +253,11 @@ class WPBR_Dolt {
 
 	public function abort_merge(): void {
 		try {
-			$this->rollback(); } catch ( Throwable $e ) {
-			}
+			$this->rollback();
+		} catch ( Throwable $e ) {
+			// Nothing to abort: the connection may already be out of the transaction.
+			return;
+		}
 	}
 
 	// ---------------------------------------------------------------- rollback

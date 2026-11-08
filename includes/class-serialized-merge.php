@@ -65,17 +65,20 @@ class WPBR_Serialized_Merge {
 				$out[ $k ] = self::merge3( $in_b ? $base[ $k ] : null, $ours[ $k ], $theirs[ $k ] );
 			} elseif ( $in_o && ! $in_t ) {
 				if ( ! $in_b ) {
-					$out[ $k ] = $ours[ $k ]; }                      // we added it
-				elseif ( $ours[ $k ] === $base[ $k ] ) {
-					/* they removed, we did not touch: drop */ } else {
+					// We added it.
+					$out[ $k ] = $ours[ $k ];
+				} elseif ( $ours[ $k ] !== $base[ $k ] ) {
 					throw new RuntimeException( "they removed '$k', we changed it" );
-					}
+				}
+				// Otherwise they removed it and we did not touch it: drop.
 			} elseif ( ! $in_o && $in_t ) {
 				if ( ! $in_b ) {
-					$out[ $k ] = $theirs[ $k ]; } elseif ( $theirs[ $k ] === $base[ $k ] ) {
-					/* we removed it */ } else {
-						throw new RuntimeException( "we removed '$k', they changed it" );
-					}
+					// They added it.
+					$out[ $k ] = $theirs[ $k ];
+				} elseif ( $theirs[ $k ] !== $base[ $k ] ) {
+					throw new RuntimeException( "we removed '$k', they changed it" );
+				}
+				// Otherwise we removed it and they did not touch it: drop.
 			}
 		}
 		$all_lists = self::is_list( $base ) && self::is_list( $ours ) && self::is_list( $theirs );

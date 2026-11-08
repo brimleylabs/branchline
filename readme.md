@@ -34,7 +34,7 @@ Start with [docs/getting-started.md](docs/getting-started.md). The full set:
 
 ## Verified with
 
-WordPress 7.1 on Dolt 2.7. WooCommerce installed on a release branch and published, then orders pulled back while prices and currency changed on the release. Elementor layouts edited on both branches merged key by key. A MySQL 8.4 site imported and switched over. 300,000 rows previewed and published in about three seconds each. Unit tests: `php tests/unit.php`.
+WordPress 7.1 on Dolt 2.7. WooCommerce installed on a release branch and published, then orders pulled back while prices and currency changed on the release. Elementor layouts edited on both branches merged key by key. A MySQL 8.4 site imported and switched over, and a branch dumped back out to MySQL with the plugin removed. A subdirectory multisite network with two sites pulled and published. 300,000 rows previewed and published in about three seconds each. Unit tests: `php tests/unit.php`.
 
 ## Requirements
 

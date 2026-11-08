@@ -316,7 +316,7 @@ class WPBR_Admin
                 if (!isset($local[$short])) { $state = 'new'; $btn = 'Track'; }
                 elseif ($local[$short] === $rb['hash']) { $state = 'up to date'; $btn = ''; }
                 elseif ($short === $branch) { $state = 'behind this site'; $btn = ''; }
-                else { $state = 'newer than local'; $btn = 'Update'; }
+                else { $state = 'differs from local'; $btn = 'Update from remote'; }
                 echo '<tr><td><strong>' . esc_html($short) . '</strong> <span class="wpbr-fine">' . esc_html($remote_name) . '</span></td><td><code>' . esc_html(substr($rb['hash'], 0, 8)) . '</code></td>';
                 echo '<td>' . esc_html((string) $rb['latest_commit_message']) . '<br><span class="wpbr-fine">' . esc_html($state) . '</span></td>';
                 echo '<td class="right">' . ($btn ? self::remote_form('track', ['ref' => $rb['name']], $btn) : '') . '</td></tr>';

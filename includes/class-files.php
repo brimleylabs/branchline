@@ -28,6 +28,10 @@ class WPBR_Files {
 		if ( ! $dir && $branch === WPBR_Dolt::current_branch() ) {
 			$dir = wp_get_upload_dir()['basedir'] ?? null;
 		}
+		if ( ! $dir && class_exists( 'WPBR_Workspaces' ) && WPBR_Workspaces::is_workspace( $branch ) ) {
+			// A workspace is served by the staging site and shares its uploads.
+			$dir = $map[ WPBR_Workspaces::stage_branch() ] ?? ( wp_get_upload_dir()['basedir'] ?? null );
+		}
 		$dir = apply_filters( 'wpbr_uploads_dir', $dir, $branch );
 		return $dir ? rtrim( str_replace( '\\', '/', $dir ), '/' ) : null;
 	}

@@ -4,7 +4,7 @@ Tags: staging, version control, deployment, database, merge
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -25,6 +25,8 @@ Branchline ends that. It runs your WordPress database on [Dolt](https://github.c
 **Inside a row, fields are merged.** Modified timestamps take the newest, counters take the larger, and serialized PHP or JSON values are merged key by key. A page builder layout edited on both branches comes through with both edits intact.
 
 **A review you can read.** What comes in, by area, with examples. What the rules resolved and why. The few clashes that need a decision, side by side, with the consequence of each choice spelled out. Apply runs the merge in one transaction, pinned to the snapshots you reviewed.
+
+**Workspaces, so nobody edits on staging.** Editors, developers and agents each work in a named branch of data and code, served by the staging site and entered from the admin bar or a preview link. Finished work is promoted into stage, which is read-only and always holds exactly production or the next release. A release moves stage to production as one named step, tagged in git and in the database, and rolls back as one step.
 
 **Everything else a team needs.**
 
@@ -113,6 +115,14 @@ Add a remote, which can be your Dolt server, DoltHub, a self-hosted DoltLab, a s
 
 Yes. Every command has non-interactive flags, the preview prints JSON, clashes have stable keys that can be resolved by flag, and the documentation includes a page written for pipelines and coding agents, with instructions you can paste into whatever tool you use.
 
+= I have fifty changes ready and twenty that are not. How do I ship only the fifty? =
+
+Workspaces. Turn them on in the staging site's wp-config.php with the lines the Branchline screen shows you. From then on nobody edits staging: each piece of work happens in its own named workspace, served by the staging site, and is promoted into stage only when it is ready. The twenty unfinished changes were never on stage, so the release cannot carry them. Workspaces can branch code as well as data when you point Branchline at the site's git repository.
+
+= What is a release? =
+
+Stage moved to production under a name. Production is tagged before and after, the code is tagged the same, and your deploy command runs with the tag in its environment before the data merges. Rolling a release back returns production data to the tag taken before and deploys the previous release's code.
+
 == Screenshots ==
 
 1. The Branchline screen on a staging site: current snapshot, unsaved changes, rows ahead of and behind production, and the three actions.
@@ -125,6 +135,16 @@ Yes. Every command has non-interactive flags, the preview prints JSON, clashes h
 
 == Changelog ==
 
+= 1.1.0 =
+* Workspaces: named branches of data and optionally code, served by the staging site, entered by signed cookie, signed preview link, hostname, or the WPBR_WORKSPACE environment variable on the command line.
+* Stage becomes read-only and holds exactly production or the next release.
+* Promote a workspace into stage, data then code, refused while the workspace is behind stage. Update a workspace from stage.
+* Releases: stage to production under a name, tagged before and after, code tagged the same, the deploy command run first. Release rollback undoes both.
+* Workspaces card, Release card, admin bar switcher, a bar on every page naming where you are, promote and update review screens.
+* WP-CLI: workspace list, create, delete, link, update; promote; release, release list, release rollback.
+* Login sessions shared across stage and workspaces. Mail from a workspace dropped. Workspace requests not page-cached; object cache keyed by workspace.
+* Elementor caches classed as bookkeeping.
+
 = 1.0.0 =
 * First public release.
 * Pull, publish and merge any branch with WordPress-aware rules, field-level and semantic merging, a review screen and a WP-CLI command set.
@@ -136,6 +156,9 @@ Yes. Every command has non-interactive flags, the preview prints JSON, clashes h
 * Multisite table prefixes understood.
 
 == Upgrade Notice ==
+
+= 1.1.0 =
+Adds workspaces and named releases. Nothing changes until you load extras/workspace-switch.php from the staging site's wp-config.php.
 
 = 1.0.0 =
 First public release.

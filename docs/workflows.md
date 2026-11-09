@@ -89,6 +89,18 @@ If you want cleaner history, record snapshots on production at release boundarie
 
     wp branchline snapshot --message="Before release 24"
 
+## A team on workspaces
+
+With [workspaces](workspaces.md) on, nobody edits staging. The day looks like this.
+
+1. An editor opens the Branchline screen on staging, creates the workspace `spring`, and opens it from the admin bar. Their browser is now on `spring`, admin and front end. They build the landing pages, change the menu, upload the images.
+2. A developer runs `wp branchline workspace create spring-code --code`, or ticks "branch the code too" on the same workspace, and edits the theme in the checkout. They commit on the workspace branch.
+3. Meanwhile another workspace, `pricing`, is promoted to stage and released. `spring` now shows "behind stage". The editor clicks **Update from stage**, reviews, applies. The pricing change is in `spring` too.
+4. The client gets the preview link and reviews on their phone.
+5. The editor clicks **Promote to stage**. Stage now holds exactly the spring release and nothing else. The team tests it there.
+6. Someone with the publish capability types a release name and clicks **Review and release to production**. Code is tagged and deployed, data is published, production is tagged.
+7. Monday morning the client wants it gone. **Roll back this release**. Production is back, code and data. The workspace still has everything; fix forward and release again.
+
 ## Automating it
 
 Every step above runs non-interactively. See [For automation and agents](for-agents.md).

@@ -348,5 +348,33 @@ ok(
 	'without a base, disjoint keys combine'
 );
 
+echo "Classifier: plugin bookkeeping\n";
+same( $c->classify( 'wp_options', array( 'option_name' => '_elementor_design_system_sync_css_meta' ) ), 'noise', 'Elementor sync marker is noise' );
+same( $c->classify( 'wp_options', array( 'option_name' => '_elementor_assets_data' ) ), 'noise', 'Elementor asset cache is noise' );
+same( $c->classify( 'wp_options', array( 'option_name' => 'elementor_cpt_support' ) ), 'structure', 'an Elementor setting is structure' );
+
+echo "Workspace switch\n";
+require __DIR__ . '/../extras/workspace-switch.php';
+ok( wpbr_ws_valid_name( 'spring-2027' ), 'dashes and digits are a valid name' );
+ok( ! wpbr_ws_valid_name( 'Spring' ), 'uppercase is not a valid name' );
+ok( ! wpbr_ws_valid_name( '-x' ), 'a leading dash is not a valid name' );
+ok( ! wpbr_ws_valid_name( str_repeat( 'a', 41 ) ), '41 characters is too long' );
+ok( ! wpbr_ws_valid_name( 'a/b' ), 'a slash is not a valid name' );
+same( wpbr_ws_branch( 'spring' ), 'ws/spring', 'a workspace lives on ws/<name>' );
+$tok = wpbr_ws_sign( 'spring', 2000000000, 'secret' );
+same( wpbr_ws_verify( $tok, 'secret', 1900000000 ), 'spring', 'a signed token verifies' );
+same( wpbr_ws_verify( $tok, 'other', 1900000000 ), null, 'the wrong secret does not verify' );
+same( wpbr_ws_verify( $tok, 'secret', 2000000001 ), null, 'an expired token does not verify' );
+same( wpbr_ws_verify( str_replace( 'spring', 'summer', $tok ), 'secret', 1900000000 ), null, 'a renamed token does not verify' );
+same( wpbr_ws_verify( 'garbage', 'secret' ), null, 'garbage does not verify' );
+same( wpbr_ws_verify( $tok, '' ), null, 'no secret, nothing verifies' );
+same( wpbr_ws_code_dir( 'spring' ), null, 'no code root, no code dir' );
+putenv( 'WPBR_WORKSPACE=spring' );
+same( wpbr_workspace_db_name( 'wp', 'stage' ), 'wp/ws/spring', 'on the command line the environment picks the workspace' );
+ok( defined( 'WPBR_WORKSPACE' ) && WPBR_WORKSPACE === 'spring', 'WPBR_WORKSPACE is defined for the request' );
+ok( defined( 'WPBR_STAGE_BRANCH' ) && WPBR_STAGE_BRANCH === 'stage', 'WPBR_STAGE_BRANCH records the staging branch' );
+ok( defined( 'WP_CACHE_KEY_SALT' ) && str_contains( WP_CACHE_KEY_SALT, 'spring' ), 'the object cache is keyed by workspace' );
+putenv( 'WPBR_WORKSPACE' );
+
 echo "\n$pass passed, $fail failed\n";
 exit( $fail ? 1 : 0 );

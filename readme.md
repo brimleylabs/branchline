@@ -9,6 +9,7 @@ Code goes up, content comes down, and everything built in between gets overwritt
 - **Rules that know WordPress.** Structure follows the release. Content follows production. Pages merge field by field. Bookkeeping is never shown.
 - **Fields merge inside rows.** Serialized PHP and JSON merged key by key, so page builder layouts edited on both sides come through whole.
 - **A review you can read**, with only the true clashes needing a decision.
+- **Workspaces.** Nobody edits on staging. Editors, developers and agents each work in a named branch of data and code, served by the staging site, and promote finished work into stage. Stage is always production or the next release. Releases are named, tagged in git and in the database, and roll back as one unit.
 - Remotes for laptops, attachment files that follow their rows, rollback with saved points, capabilities, an import command for existing sites, and a WP-CLI command set with JSON output for pipelines and agents.
 
 ## Documentation
@@ -24,6 +25,7 @@ Start with [docs/getting-started.md](docs/getting-started.md). The full set:
 | [Configuration](docs/configuration.md) | Constants, capabilities, filters |
 | [For automation and agents](docs/for-agents.md) | The safe loop, resolving by key, instructions to give your agent |
 | [Troubleshooting](docs/troubleshooting.md) | Messages and what to do, and how to leave |
+| [Workspaces and releases](docs/workspaces.md) | Named workspaces for data and code, promotion into stage, named releases with rollback |
 
 ## Quick start for an existing site
 

@@ -96,33 +96,66 @@ class WPBR_Admin {
 		if ( ! current_user_can( WPBR_CAP_MANAGE ) ) {
 			wp_die( esc_html__( 'Not allowed.', 'branchline' ) );
 		}
-		$target = sanitize_text_field( wp_unslash( $_POST['target'] ?? '' ) );
-		$source = sanitize_text_field( wp_unslash( $_POST['source'] ?? '' ) );
+		$target  = sanitize_text_field( wp_unslash( $_POST['target'] ?? '' ) );
+		$source  = sanitize_text_field( wp_unslash( $_POST['source'] ?? '' ) );
+		$dir     = sanitize_key( wp_unslash( $_POST['dir'] ?? '' ) );
+		$ws      = strtolower( sanitize_text_field( wp_unslash( $_POST['ws'] ?? '' ) ) );
+		$release = sanitize_text_field( wp_unslash( $_POST['release'] ?? '' ) );
 		if ( $target === WPBR_PRODUCTION_BRANCH && ! self::can_publish() ) {
 			wp_die( esc_html__( 'Publishing to production needs the publish_to_production capability.', 'branchline' ) );
 		}
-		$pinned    = array(
+		$pinned        = array(
 			'target_hash' => sanitize_text_field( wp_unslash( $_POST['target_hash'] ?? '' ) ),
 			'source_hash' => sanitize_text_field( wp_unslash( $_POST['source_hash'] ?? '' ) ),
 		);
-		$decisions = array();
+		$decisions     = array();
 		$raw_decisions = isset( $_POST['decision'] ) ? (array) wp_unslash( $_POST['decision'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- each key and value is sanitized below.
 		foreach ( $raw_decisions as $k => $v ) {
-			$v = sanitize_text_field( $v );
+			$v                                      = sanitize_text_field( $v );
 			$decisions[ sanitize_text_field( $k ) ] = in_array( $v, array( 'ours', 'theirs', 'merged', 'delete' ), true ) ? $v : '';
 		}
 		try {
-			$engine = new WPBR_Merge_Engine( $target, $source );
-			$r      = $engine->apply( $decisions, $pinned, sanitize_text_field( wp_unslash( $_POST['message'] ?? '' ) ) );
-			$n      = count( $r['applied'] );
-			$msg    = sprintf(
-				/* translators: 1: source branch, 2: target branch, 3: short snapshot hash, 4: number of resolved items */
-				_n( 'Merged %1$s into %2$s. New head %3$s. %4$d item resolved.', 'Merged %1$s into %2$s. New head %3$s. %4$d items resolved.', $n, 'branchline' ),
-				$source,
-				$target,
-				substr( $r['hash'], 0, 8 ),
-				$n
-			);
+			$message = sanitize_text_field( wp_unslash( $_POST['message'] ?? '' ) );
+			if ( $dir === 'promote' && WPBR_Workspaces::enabled() ) {
+				$r = WPBR_Workspaces::promote( $ws, $decisions, $pinned, $message );
+				/* translators: 1: workspace name, 2: short snapshot hash */
+				$msg = sprintf( __( 'Workspace %1$s promoted to stage. New head %2$s.', 'branchline' ), $ws, substr( $r['hash'], 0, 8 ) );
+				if ( ! empty( $r['code_hash'] ) ) {
+					/* translators: %s: short git commit hash */
+					$msg .= ' ' . sprintf( __( 'Code merged at %s.', 'branchline' ), substr( $r['code_hash'], 0, 8 ) );
+				}
+			} elseif ( $dir === 'update' && WPBR_Workspaces::enabled() ) {
+				$r = WPBR_Workspaces::update( $ws, $decisions, $pinned, $message );
+				/* translators: 1: workspace name, 2: short snapshot hash */
+				$msg = sprintf( __( 'Workspace %1$s updated from stage. New head %2$s.', 'branchline' ), $ws, substr( $r['hash'], 0, 8 ) );
+				if ( ! empty( $r['code_hash'] ) ) {
+					/* translators: %s: short git commit hash */
+					$msg .= ' ' . sprintf( __( 'Code merged at %s.', 'branchline' ), substr( $r['code_hash'], 0, 8 ) );
+				}
+			} elseif ( $release !== '' && $target === WPBR_PRODUCTION_BRANCH ) {
+				$r = WPBR_Release::run( $release, $decisions, $pinned, true );
+				/* translators: 1: release name, 2: short snapshot hash */
+				$msg = sprintf( __( 'Release %1$s is in production. New head %2$s.', 'branchline' ), $release, substr( $r['hash'], 0, 8 ) );
+				if ( ! empty( $r['code_tag'] ) ) {
+					$msg .= ' ' . ( $r['deploy'] !== null
+						/* translators: %s: git tag */
+						? sprintf( __( 'Code %s tagged and deployed.', 'branchline' ), $r['code_tag'] )
+						/* translators: %s: git tag */
+						: sprintf( __( 'Code %s tagged; deploy it with your usual command.', 'branchline' ), $r['code_tag'] ) );
+				}
+			} else {
+				$engine = new WPBR_Merge_Engine( $target, $source );
+				$r      = $engine->apply( $decisions, $pinned, $message );
+				$n      = count( $r['applied'] );
+				$msg    = sprintf(
+					/* translators: 1: source branch, 2: target branch, 3: short snapshot hash, 4: number of resolved items */
+					_n( 'Merged %1$s into %2$s. New head %3$s. %4$d item resolved.', 'Merged %1$s into %2$s. New head %3$s. %4$d items resolved.', $n, 'branchline' ),
+					$source,
+					$target,
+					substr( $r['hash'], 0, 8 ),
+					$n
+				);
+			}
 			$files = WPBR_Files::describe( $r['files'] ?? array( 'attachments' => 0 ) );
 			if ( $files ) {
 				$msg .= ' ' . $files;
@@ -311,30 +344,44 @@ class WPBR_Admin {
 				$prod_hash = $b['hash'];
 			}
 		}
-		$ahead  = 0;
-		$behind = 0;
+		$ws_on = WPBR_Workspaces::enabled();
+		$ws    = $ws_on ? WPBR_Workspaces::current() : null;
+		// The branch this one is measured against: production, or stage for a workspace.
+		$upstream = $ws !== null ? WPBR_Workspaces::stage_branch() : WPBR_PRODUCTION_BRANCH;
+		$ahead    = 0;
+		$behind   = 0;
 		if ( ! $is_prod && $prod_hash ) {
 			$cls    = new WPBR_Classifier( $d );
-			$base   = $d->merge_base( WPBR_PRODUCTION_BRANCH );
+			$base   = $d->merge_base( $upstream );
 			$ahead  = WPBR_Merge_Engine::total( WPBR_Merge_Engine::summarize( $d, $cls, $base, $branch, 0 ) );
-			$behind = WPBR_Merge_Engine::total( WPBR_Merge_Engine::summarize( $d, $cls, $base, WPBR_PRODUCTION_BRANCH, 0 ) );
+			$behind = WPBR_Merge_Engine::total( WPBR_Merge_Engine::summarize( $d, $cls, $base, $upstream, 0 ) );
 		}
 		$remotes         = $d->remotes();
 		$remote_branches = $remotes ? $d->remote_branches() : array();
 		$tags            = $d->tags();
-		$d->close();
-		$may_rollback = ! $is_prod || self::can_publish();
+		$may_rollback    = ! $is_prod || self::can_publish();
 
 		self::out( '<h1>Branchline ' . self::pill( $branch, $is_prod ) . '</h1>' );
-		self::out(
-			'<p class="wpbr-sub">' . sprintf(
-				/* translators: 1: branch name, 2: database name, 3: production branch name, each in a code tag */
-				esc_html__( 'This site reads and writes the %1$s branch of database %2$s. Production is %3$s.', 'branchline' ),
-				self::code( $branch ),
-				self::code( WPBR_Dolt::base_database() ),
-				self::code( WPBR_PRODUCTION_BRANCH )
-			) . '</p>'
-		);
+		if ( $ws !== null ) {
+			self::out(
+				'<p class="wpbr-sub">' . sprintf(
+					/* translators: 1: workspace name, 2: stage branch name, each in a code tag */
+					esc_html__( 'You are in workspace %1$s. Edits here stay here until it is promoted to %2$s.', 'branchline' ),
+					self::code( $ws ),
+					self::code( $upstream )
+				) . '</p>'
+			);
+		} else {
+			self::out(
+				'<p class="wpbr-sub">' . sprintf(
+					/* translators: 1: branch name, 2: database name, 3: production branch name, each in a code tag */
+					esc_html__( 'This site reads and writes the %1$s branch of database %2$s. Production is %3$s.', 'branchline' ),
+					self::code( $branch ),
+					self::code( WPBR_Dolt::base_database() ),
+					self::code( WPBR_PRODUCTION_BRANCH )
+				) . '</p>'
+			);
+		}
 
 		// ---- status bar: the numbers that matter and the three things you can do
 		echo '<div class="card wpbr-status">';
@@ -342,17 +389,46 @@ class WPBR_Admin {
 		self::out( self::stat( self::code( substr( $head, 0, 8 ) ), __( 'current snapshot', 'branchline' ) ) );
 		/* translators: %d is shown separately as the number; this is its label */
 		self::out( self::stat( esc_html( (string) count( $status ) ), _n( 'table with unsaved changes', 'tables with unsaved changes', count( $status ), 'branchline' ), $status ? 'warn' : 'ok' ) );
-		if ( ! $is_prod ) {
+		if ( $ws !== null ) {
+			self::out( self::stat( esc_html( (string) $ahead ), __( 'rows changed here, not yet on stage', 'branchline' ), $ahead ? 'info' : '' ) );
+			self::out( self::stat( esc_html( (string) $behind ), __( 'rows changed on stage, not yet here', 'branchline' ), $behind ? 'warn' : 'ok' ) );
+		} elseif ( ! $is_prod ) {
 			self::out( self::stat( esc_html( (string) $ahead ), __( 'rows changed here, not yet in production', 'branchline' ), $ahead ? 'info' : '' ) );
 			self::out( self::stat( esc_html( (string) $behind ), __( 'rows changed in production, not yet here', 'branchline' ), $behind ? 'info' : '' ) );
 		}
 		echo '</div>';
 		echo '<div class="wpbr-actionbar">';
-		if ( ! $is_prod ) {
-			if ( self::can_publish() ) {
+		if ( $ws !== null ) {
+			if ( $behind ) {
+				self::out(
+					self::review_link(
+						array(
+							'dir' => 'update',
+							'ws'  => $ws,
+						),
+						__( 'Update from stage', 'branchline' ),
+						'button button-primary'
+					)
+				);
+				echo '<span class="wpbr-fine">' . esc_html__( 'Promotion needs the workspace current with stage.', 'branchline' ) . '</span>';
+			} else {
+				self::out(
+					self::review_link(
+						array(
+							'dir' => 'promote',
+							'ws'  => $ws,
+						),
+						__( 'Promote to stage', 'branchline' ),
+						'button button-primary'
+					)
+				);
+			}
+			echo '<a class="button" href="' . esc_url( WPBR_Workspaces::leave_url() ) . '">' . esc_html__( 'Back to stage', 'branchline' ) . '</a>';
+		} elseif ( ! $is_prod ) {
+			if ( self::can_publish() && ! $ws_on ) {
 				self::out( self::review_link( array( 'dir' => 'publish' ), __( 'Publish to production', 'branchline' ), 'button button-primary' ) );
 			}
-			self::out( self::review_link( array( 'dir' => 'pull' ), __( 'Pull from production', 'branchline' ), self::can_publish() ? 'button' : 'button button-primary' ) );
+			self::out( self::review_link( array( 'dir' => 'pull' ), __( 'Pull from production', 'branchline' ), self::can_publish() && ! $ws_on ? 'button' : 'button button-primary' ) );
 		}
 		echo '<details class="wpbr-reveal"><summary class="button">' . esc_html__( 'Record snapshot', 'branchline' ) . '</summary>';
 		self::out( '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="wpbr-inline">' . wp_nonce_field( 'wpbr_snapshot', '_wpnonce', true, false ) . '<input type="hidden" name="action" value="wpbr_snapshot">' );
@@ -369,6 +445,17 @@ class WPBR_Admin {
 			echo '<p class="wpbr-fine">' . esc_html__( 'Row counts leave out bookkeeping: transients, cron, locks and sessions.', 'branchline' ) . '</p>';
 		}
 		echo '</div>';
+
+		// ---- workspaces and releases: the staging site's way of working
+		if ( $ws_on && ! $is_prod ) {
+			if ( $ws === null ) {
+				WPBR_Admin_Workspaces::release_card( $ahead, $behind );
+			}
+			WPBR_Admin_Workspaces::card( $d, $branches );
+		} elseif ( ! $is_prod && class_exists( 'WPBR_Admin_Workspaces' ) ) {
+			WPBR_Admin_Workspaces::setup_hint();
+		}
+		$d->close();
 
 		// ---- branches and remotes side by side
 		echo '<div class="wpbr-cols">';
@@ -485,13 +572,50 @@ class WPBR_Admin {
 		$branch = WPBR_Dolt::current_branch();
 		// Read-only view parameters; the apply handler checks the nonce.
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended
-		$dir  = sanitize_key( wp_unslash( $_GET['dir'] ?? 'publish' ) );
-		$from = sanitize_text_field( wp_unslash( $_GET['from'] ?? '' ) );
+		$dir     = sanitize_key( wp_unslash( $_GET['dir'] ?? 'publish' ) );
+		$from    = sanitize_text_field( wp_unslash( $_GET['from'] ?? '' ) );
+		$ws      = strtolower( sanitize_text_field( wp_unslash( $_GET['ws'] ?? '' ) ) );
+		$release = sanitize_text_field( wp_unslash( $_GET['release'] ?? '' ) );
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
-		if ( ! in_array( $dir, array( 'pull', 'publish', 'merge' ), true ) ) {
+		if ( ! in_array( $dir, array( 'pull', 'publish', 'merge', 'promote', 'update' ), true ) ) {
 			$dir = 'publish';
 		}
-		if ( $dir === 'merge' ) {
+		$upstream = WPBR_PRODUCTION_BRANCH;
+		if ( in_array( $dir, array( 'promote', 'update' ), true ) ) {
+			if ( ! WPBR_Workspaces::enabled() ) {
+				echo '<h1>Branchline</h1><div class="notice notice-error"><p>' . esc_html__( 'Workspaces are not set up on this site.', 'branchline' ) . '</p></div>';
+				return;
+			}
+			$d  = new WPBR_Dolt( WPBR_Workspaces::stage_branch() );
+			$ok = WPBR_Workspaces::exists( $d, $ws );
+			$d->close();
+			if ( ! $ok ) {
+				echo '<h1>Branchline</h1><div class="notice notice-error"><p>' . esc_html__( 'No such workspace.', 'branchline' ) . '</p></div>';
+				return;
+			}
+			$upstream = WPBR_Workspaces::stage_branch();
+			if ( $dir === 'promote' ) {
+				[$target, $source] = array( $upstream, WPBR_Workspaces::branch( $ws ) );
+				if ( ! WPBR_Workspaces::is_current( $ws ) ) {
+					echo '<h1>' . esc_html__( 'Promote to stage', 'branchline' ) . '</h1><p class="wpbr-sub"><a href="' . esc_url( self::url() ) . '">' . esc_html__( 'Back to Branchline', 'branchline' ) . '</a></p>';
+					/* translators: %s: workspace name in a code tag */
+					$why = sprintf( esc_html__( 'Stage has changed since %s was created or last updated. Update the workspace from stage first, check it, then promote.', 'branchline' ), self::code( $ws ) );
+					self::out(
+						'<div class="wpbr-banner warn"><strong>' . esc_html__( 'Not current with stage.', 'branchline' ) . '</strong> ' . $why . ' ' . self::review_link(
+							array(
+								'dir' => 'update',
+								'ws'  => $ws,
+							),
+							__( 'Update from stage', 'branchline' ),
+							'button button-primary'
+						) . '</div>'
+					);
+					return;
+				}
+			} else {
+				[$target, $source] = array( WPBR_Workspaces::branch( $ws ), $upstream );
+			}
+		} elseif ( $dir === 'merge' ) {
 			$d  = new WPBR_Dolt( $branch );
 			$ok = $from !== '' && $from !== $branch && $d->branch_exists( $from );
 			$d->close();
@@ -511,24 +635,35 @@ class WPBR_Admin {
 				return;
 			}
 			[$target, $source] = $dir === 'pull' ? array( $branch, WPBR_PRODUCTION_BRANCH ) : array( WPBR_PRODUCTION_BRANCH, $branch );
+			if ( $dir === 'publish' && $release !== '' && ! WPBR_Release::valid_name( $release ) ) {
+				echo '<h1>Branchline</h1><div class="notice notice-error"><p>' . esc_html__( 'A release name is letters, digits, dots, dashes and underscores.', 'branchline' ) . '</p></div>';
+				return;
+			}
 		}
-		$engine         = new WPBR_Merge_Engine( $target, $source );
+		$engine         = new WPBR_Merge_Engine( $target, $source, $upstream );
 		$p              = $engine->preview();
 		$titles         = array(
 			'pull'    => __( 'Pull from production', 'branchline' ),
-			'publish' => __( 'Publish to production', 'branchline' ),
+			/* translators: %s: release name */
+			'publish' => $release !== '' ? sprintf( __( 'Release %s to production', 'branchline' ), $release ) : __( 'Publish to production', 'branchline' ),
 			/* translators: 1: source branch, 2: target branch */
 			'merge'   => sprintf( __( 'Merge %1$s into %2$s', 'branchline' ), $source, $target ),
+			/* translators: %s: workspace name */
+			'promote' => sprintf( __( 'Promote %s to stage', 'branchline' ), $ws ),
+			/* translators: %s: workspace name */
+			'update'  => sprintf( __( 'Update %s from stage', 'branchline' ), $ws ),
 		);
 		$verbs          = array(
 			/* translators: %s: target branch name */
 			'pull'    => sprintf( __( 'Pull into %s', 'branchline' ), $target ),
 			/* translators: %s: target branch name */
-			'publish' => sprintf( __( 'Publish to %s', 'branchline' ), $target ),
+			'publish' => $release !== '' ? __( 'Release to production', 'branchline' ) : sprintf( __( 'Publish to %s', 'branchline' ), $target ),
 			/* translators: %s: target branch name */
 			'merge'   => sprintf( __( 'Merge into %s', 'branchline' ), $target ),
+			'promote' => __( 'Promote to stage', 'branchline' ),
+			'update'  => __( 'Update workspace', 'branchline' ),
 		);
-		$combine_winner = in_array( WPBR_PRODUCTION_BRANCH, array( $source, $target ), true ) ? __( 'production', 'branchline' ) : $target;
+		$combine_winner = in_array( $upstream, array( $source, $target ), true ) ? ( $upstream === WPBR_PRODUCTION_BRANCH ? __( 'production', 'branchline' ) : $upstream ) : $target;
 		$rows_in        = WPBR_Merge_Engine::total( $p['incoming'] );
 		$can_apply      = (bool) $p['incoming'] && empty( $p['up_to_date'] );
 
@@ -564,6 +699,11 @@ class WPBR_Admin {
 		self::out( '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">' . wp_nonce_field( 'wpbr_apply', '_wpnonce', true, false ) );
 		echo '<input type="hidden" name="action" value="wpbr_apply"><input type="hidden" name="target" value="' . esc_attr( $target ) . '"><input type="hidden" name="source" value="' . esc_attr( $source ) . '">';
 		echo '<input type="hidden" name="target_hash" value="' . esc_attr( $p['target_hash'] ) . '"><input type="hidden" name="source_hash" value="' . esc_attr( $p['source_hash'] ) . '">';
+		echo '<input type="hidden" name="dir" value="' . esc_attr( $dir ) . '"><input type="hidden" name="ws" value="' . esc_attr( $ws ) . '"><input type="hidden" name="release" value="' . esc_attr( $release ) . '">';
+		if ( $release !== '' ) {
+			/* translators: %s: release name in a code tag */
+			self::out( '<p class="wpbr-fine">' . sprintf( esc_html__( 'Production is tagged %s before and after, so this release can be rolled back as a unit.', 'branchline' ), self::code( WPBR_Release::TAG . $release ) ) . ( WPBR_Git::available() ? ' ' . ( WPBR_Release::has_deploy() ? esc_html__( 'The code is tagged the same and the deploy command runs first.', 'branchline' ) : esc_html__( 'The code is tagged the same; deploy it with your usual command.', 'branchline' ) ) : '' ) . '</p>' );
+		}
 
 		// ---- decisions first: this is the only part that needs a person
 		if ( $p['human'] ) {
@@ -651,6 +791,9 @@ class WPBR_Admin {
 
 	/** Escaped HTML. */
 	private static function pill( string $branch, bool $is_prod ): string {
+		if ( WPBR_Workspaces::is_workspace( $branch ) ) {
+			return '<span class="wpbr-pill ws">' . esc_html( WPBR_Workspaces::name_of( $branch ) ) . ' <span class="wpbr-dim">' . esc_html__( 'workspace', 'branchline' ) . '</span></span>';
+		}
 		return '<span class="wpbr-pill' . ( $is_prod ? ' prod' : '' ) . '">' . esc_html( $branch ) . ( $is_prod ? ' <span class="wpbr-dim">' . esc_html__( 'production', 'branchline' ) . '</span>' : '' ) . '</span>';
 	}
 

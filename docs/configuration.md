@@ -9,6 +9,7 @@ Set these in `wp-config.php`, before `wp-settings.php` is loaded.
 | `DB_NAME` | | `database` on production, `database/branch` on every other environment. This is how a site knows its branch. |
 | `WPBR_PRODUCTION_BRANCH` | `main` | The branch that counts as production. Every other branch is a release branch. |
 | `WPBR_UPLOADS_DIRS` | not set | Array of branch name to uploads directory. Needed for attachment files to be copied between environments. The branch a site runs on defaults to its own uploads directory. |
+| `WPBR_WORKSPACE_SECRET` | not set | Turns on workspaces on the staging site, together with loading `extras/workspace-switch.php`. See [Workspaces and releases](workspaces.md) for this and the other workspace constants: `WPBR_CODE_ROOT`, `WPBR_WORKSPACE_LINKS`, `WPBR_RELEASE_COMMAND`, `WPBR_STAGE_READ_ONLY` and the rest. |
 
 ## Capabilities
 

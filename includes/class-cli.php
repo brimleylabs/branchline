@@ -15,6 +15,19 @@
  *   track <remote>/<branch> [--as=<name>]     Create or update a local branch from a remote one
  *   log [--count=20]                          Snapshots on this branch
  *   rollback <hash> [--yes]                   Move this branch back to a snapshot (current head kept as a tag)
+ *
+ * Workspaces (staging site with extras/workspace-switch.php loaded):
+ *   workspace list                            Every workspace, its changes, whether it is current with stage
+ *   workspace create <name> [--from=<ref>] [--code]   New workspace from stage (default), production, a branch or a snapshot
+ *   workspace delete <name> [--yes]
+ *   workspace link <name>                     A signed preview link that opens the workspace in a browser
+ *   workspace update <name> [--yes] [--resolve=...]   Bring stage into the workspace
+ *   promote <name> [--yes] [--resolve=...]    Merge a current workspace into stage (data, then code)
+ *   release [<name>] [--yes] [--no-deploy] [--resolve=...]   Stage to production, tagged, code first
+ *   release list                              Releases so far
+ *   release rollback <name> [--yes] [--no-deploy]   Production back to before a release; previous code deployed again
+ *
+ * Any wp command runs inside a workspace with WPBR_WORKSPACE=<name> in the environment.
  */
 defined( 'ABSPATH' ) || exit;
 
@@ -46,7 +59,198 @@ class WPBR_CLI {
 		foreach ( $d->branches() as $b ) {
 			WP_CLI::line( sprintf( '  %-12s %s  %s', $b['name'], substr( $b['hash'], 0, 8 ), (string) $b['latest_commit_message'] ) );
 		}
+		if ( WPBR_Workspaces::enabled() ) {
+			$ws = WPBR_Workspaces::current();
+			/* translators: %s: workspace name or the word "none" */
+			WP_CLI::line( sprintf( __( 'Workspace:   %s', 'branchline' ), $ws ?? __( 'none (stage, read-only)', 'branchline' ) ) );
+			$stage = WPBR_Workspaces::stage_branch();
+			if ( $branch === $stage ) {
+				$cls    = new WPBR_Classifier( $d );
+				$base   = $d->merge_base( WPBR_PRODUCTION_BRANCH );
+				$ahead  = WPBR_Merge_Engine::total( WPBR_Merge_Engine::summarize( $d, $cls, $base, $stage, 0 ) );
+				$behind = WPBR_Merge_Engine::total( WPBR_Merge_Engine::summarize( $d, $cls, $base, WPBR_PRODUCTION_BRANCH, 0 ) );
+				$code   = WPBR_Git::available() ? WPBR_Git::count( WPBR_Git::production_branch(), WPBR_Git::stage_branch() ) : null;
+				if ( ! $ahead && ! $code ) {
+					WP_CLI::line( __( 'Stage:       matches production', 'branchline' ) );
+				} else {
+					/* translators: 1: rows of data, 2: code commits or "n/a" */
+					WP_CLI::line( sprintf( __( 'Stage:       ahead of production by %1$d rows of data, %2$s code commits', 'branchline' ), $ahead, $code === null ? 'n/a' : (string) $code ) );
+				}
+				if ( $behind ) {
+					/* translators: %d: number of rows */
+					WP_CLI::line( sprintf( __( '             behind production by %d rows (pull first)', 'branchline' ), $behind ) );
+				}
+			}
+		}
 		$d->close();
+	}
+
+	// ------------------------------------------------------------ workspaces
+
+	/** wp branchline workspace <list|create|delete|link|update> ... */
+	public function workspace( $args, $assoc ): void {
+		$this->need_workspaces();
+		$op   = $args[0] ?? 'list';
+		$name = strtolower( (string) ( $args[1] ?? '' ) );
+		try {
+			switch ( $op ) {
+				case 'list':
+					$d    = new WPBR_Dolt( WPBR_Workspaces::stage_branch() );
+					$rows = WPBR_Workspaces::all( $d );
+					$d->close();
+					if ( ! $rows ) {
+						WP_CLI::line( __( 'No workspaces. Create one: wp branchline workspace create <name>', 'branchline' ) );
+						return;
+					}
+					WP_CLI\Utils\format_items(
+						$assoc['format'] ?? 'table',
+						array_map(
+							fn( $w ) => array(
+								'workspace' => $w['name'],
+								'rows'      => $w['ahead'],
+								'standing'  => $w['current'] ? __( 'current', 'branchline' ) : sprintf( /* translators: %d: rows */ __( 'behind by %d', 'branchline' ), $w['behind'] ),
+								'code'      => $w['code'] === null ? '' : ( $w['code'] ? sprintf( '%d commits ahead', (int) $w['code_ahead'] ) : __( 'data only', 'branchline' ) ),
+								'last'      => $w['last'],
+							),
+							$rows
+						),
+						array( 'workspace', 'rows', 'standing', 'code', 'last' )
+					);
+					return;
+				case 'create':
+					if ( $name === '' ) {
+						WP_CLI::error( __( 'Usage: wp branchline workspace create <name> [--from=<ref>] [--code]', 'branchline' ) );
+					}
+					$r = WPBR_Workspaces::create( $name, (string) ( $assoc['from'] ?? '' ), ! empty( $assoc['code'] ) );
+					/* translators: 1: workspace name, 2: what it started from, 3: branch name */
+					WP_CLI::success( sprintf( __( 'Workspace %1$s created from %2$s on branch %3$s.', 'branchline' ), $name, $r['from'], $r['branch'] ) . ( $r['code'] ? ' ' . sprintf( /* translators: %s: directory */ __( 'Code checkout: %s', 'branchline' ), $r['code_dir'] ) : '' ) );
+					/* translators: %s: URL */
+					WP_CLI::line( sprintf( __( 'Open it in a browser: %s', 'branchline' ), WPBR_Workspaces::link( $name ) ) );
+					/* translators: %s: workspace name */
+					WP_CLI::line( sprintf( __( 'Run wp inside it:     WPBR_WORKSPACE=%s wp ...', 'branchline' ), $name ) );
+					return;
+				case 'delete':
+					if ( $name === '' ) {
+						WP_CLI::error( __( 'Usage: wp branchline workspace delete <name> [--yes]', 'branchline' ) );
+					}
+					if ( empty( $assoc['yes'] ) ) {
+						/* translators: %s: workspace name */
+						WP_CLI::confirm( sprintf( __( 'Delete workspace %s and its code checkout?', 'branchline' ), $name ) );
+					}
+					WPBR_Workspaces::delete( $name );
+					/* translators: %s: workspace name */
+					WP_CLI::success( sprintf( __( 'Workspace %s deleted.', 'branchline' ), $name ) );
+					return;
+				case 'link':
+					if ( $name === '' ) {
+						WP_CLI::error( __( 'Usage: wp branchline workspace link <name> [--hours=12]', 'branchline' ) );
+					}
+					WP_CLI::line( WPBR_Workspaces::link( $name, (int) ( ( $assoc['hours'] ?? 12 ) * HOUR_IN_SECONDS ) ) );
+					return;
+				case 'update':
+					if ( $name === '' ) {
+						WP_CLI::error( __( 'Usage: wp branchline workspace update <name> [--yes]', 'branchline' ) );
+					}
+					$this->run_merge( WPBR_Workspaces::update_engine( $name ), $assoc, fn( $dec, $pin, $msg ) => WPBR_Workspaces::update( $name, $dec, $pin, $msg ) );
+					return;
+				default:
+					WP_CLI::error( __( 'Usage: wp branchline workspace <list|create|delete|link|update>', 'branchline' ) );
+			}
+		} catch ( Throwable $e ) {
+			WP_CLI::error( $e->getMessage() );
+		}
+	}
+
+	/** wp branchline promote <name> [--yes] [--resolve=...] */
+	public function promote( $args, $assoc ): void {
+		$this->need_workspaces();
+		$name = strtolower( (string) ( $args[0] ?? '' ) );
+		if ( $name === '' ) {
+			WP_CLI::error( __( 'Give the workspace to promote. See: wp branchline workspace list', 'branchline' ) );
+		}
+		try {
+			if ( ! WPBR_Workspaces::is_current( $name ) ) {
+				/* translators: %s: workspace name */
+				WP_CLI::error( sprintf( __( 'Workspace %1$s is behind stage. Run: wp branchline workspace update %1$s', 'branchline' ), $name ) );
+			}
+			$this->run_merge( WPBR_Workspaces::promote_engine( $name ), $assoc, fn( $dec, $pin, $msg ) => WPBR_Workspaces::promote( $name, $dec, $pin, $msg ) );
+		} catch ( Throwable $e ) {
+			WP_CLI::error( $e->getMessage() );
+		}
+	}
+
+	/** wp branchline release [<name>] | release list | release rollback <name> */
+	public function release( $args, $assoc ): void {
+		$this->need_workspaces();
+		$op = $args[0] ?? '';
+		try {
+			if ( $op === 'list' ) {
+				$rows = WPBR_Release::all();
+				if ( ! $rows ) {
+					WP_CLI::line( __( 'No releases yet.', 'branchline' ) );
+					return;
+				}
+				WP_CLI\Utils\format_items(
+					$assoc['format'] ?? 'table',
+					array_map(
+						fn( $r ) => array(
+							'release'  => $r['name'],
+							'snapshot' => substr( $r['hash'], 0, 8 ),
+							'when'     => substr( $r['date'], 0, 16 ),
+						),
+						$rows
+					),
+					array( 'release', 'snapshot', 'when' )
+				);
+				return;
+			}
+			if ( $op === 'rollback' ) {
+				$name = (string) ( $args[1] ?? '' );
+				if ( $name === '' ) {
+					WP_CLI::error( __( 'Usage: wp branchline release rollback <name> [--yes] [--no-deploy]', 'branchline' ) );
+				}
+				if ( empty( $assoc['yes'] ) ) {
+					/* translators: %s: release name */
+					WP_CLI::confirm( sprintf( __( 'Roll production back to before release %s? The current head is saved as a tag first.', 'branchline' ), $name ) );
+				}
+				$r = WPBR_Release::rollback( $name, empty( $assoc['no-deploy'] ) );
+				/* translators: 1: release name, 2: snapshot hash, 3: tag name */
+				WP_CLI::success( sprintf( __( 'Release %1$s rolled back. Production is at %2$s; the head you left is tag %3$s.', 'branchline' ), $name, $r['hash'], $r['saved_as'] ) );
+				if ( $r['code_ref'] ) {
+					WP_CLI::line(
+						$r['deploy'] !== null
+						/* translators: %s: git tag */
+						? sprintf( __( 'Code %s deployed again.', 'branchline' ), $r['code_ref'] )
+						/* translators: %s: git tag */
+						: sprintf( __( 'Deploy code %s yourself; no deploy command ran.', 'branchline' ), $r['code_ref'] )
+					);
+				} elseif ( WPBR_Git::available() ) {
+					WP_CLI::line( __( 'No earlier release tag exists, so the code was left as it is. Deploy the right code yourself if the release changed any.', 'branchline' ) );
+				}
+				return;
+			}
+			$name   = $op !== '' ? $op : WPBR_Release::default_name();
+			$stage  = WPBR_Workspaces::stage_branch();
+			$branch = WPBR_Dolt::current_branch();
+			if ( $branch !== $stage ) {
+				WP_CLI::error( __( 'Release runs from stage, not from a workspace.', 'branchline' ) );
+			}
+			if ( ! WPBR_Release::valid_name( $name ) ) {
+				WP_CLI::error( __( 'A release name is letters, digits, dots, dashes and underscores.', 'branchline' ) );
+			}
+			/* translators: %s: release name */
+			WP_CLI::line( sprintf( __( 'Release %s: stage to production', 'branchline' ), $name ) );
+			$deploy = empty( $assoc['no-deploy'] );
+			$this->run_merge( new WPBR_Merge_Engine( WPBR_PRODUCTION_BRANCH, $stage ), $assoc, fn( $dec, $pin, $msg ) => WPBR_Release::run( $name, $dec, $pin, $deploy, fn( $l ) => WP_CLI::line( '  ' . $l ) ) );
+		} catch ( Throwable $e ) {
+			WP_CLI::error( $e->getMessage() );
+		}
+	}
+
+	private function need_workspaces(): void {
+		if ( ! WPBR_Workspaces::enabled() ) {
+			WP_CLI::error( __( 'Workspaces are not set up on this site. Load extras/workspace-switch.php from wp-config.php on the staging site; the Branchline screen shows the lines.', 'branchline' ) );
+		}
 	}
 
 	public function snapshot( $args, $assoc ): void {
@@ -319,8 +523,14 @@ class WPBR_CLI {
 		WP_CLI::line( wp_json_encode( $engine->preview(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
 	}
 
-	private function run_merge( WPBR_Merge_Engine $engine, array $assoc ): void {
+	/** Preview, print, collect decisions, confirm, apply. $applier replaces the plain engine apply for promote, update and release. */
+	private function run_merge( WPBR_Merge_Engine $engine, array $assoc, ?callable $applier = null ): void {
 		$p = $engine->preview();
+		if ( ! empty( $p['up_to_date'] ) ) {
+			/* translators: 1: target branch, 2: source branch */
+			WP_CLI::success( sprintf( __( 'Nothing to merge: %1$s already contains everything on %2$s.', 'branchline' ), $p['target'], $p['source'] ) );
+			return;
+		}
 		if ( $p['fast_forward'] ) {
 			/* translators: 1: source branch, 2: target branch */
 			WP_CLI::line( sprintf( __( 'Merging %1$s into %2$s (fast forward)', 'branchline' ), $p['source'], $p['target'] ) );
@@ -373,17 +583,26 @@ class WPBR_CLI {
 		if ( empty( $assoc['yes'] ) ) {
 			WP_CLI::confirm( __( 'Apply this merge?', 'branchline' ) );
 		}
-		$r     = $engine->apply(
-			$decisions,
-			array(
-				'target_hash' => $p['target_hash'],
-				'source_hash' => $p['source_hash'],
-			),
-			$assoc['message'] ?? ''
+		$pinned = array(
+			'target_hash' => $p['target_hash'],
+			'source_hash' => $p['source_hash'],
 		);
-		$files = WPBR_Files::describe( $r['files'] ?? array( 'attachments' => 0 ) );
+		$r      = $applier ? $applier( $decisions, $pinned, $assoc['message'] ?? '' ) : $engine->apply( $decisions, $pinned, $assoc['message'] ?? '' );
+		$files  = WPBR_Files::describe( $r['files'] ?? array( 'attachments' => 0 ) );
+		$extra  = '';
+		if ( ! empty( $r['code_hash'] ) ) {
+			/* translators: %s: short git commit hash */
+			$extra .= ' ' . sprintf( __( 'Code merged at %s.', 'branchline' ), substr( $r['code_hash'], 0, 8 ) );
+		}
+		if ( ! empty( $r['code_tag'] ) ) {
+			$extra .= ' ' . ( isset( $r['deploy'] ) && $r['deploy'] !== null
+				/* translators: %s: git tag */
+				? sprintf( __( 'Code %s tagged and deployed.', 'branchline' ), $r['code_tag'] )
+				/* translators: %s: git tag */
+				: sprintf( __( 'Code %s tagged; deploy it with your usual command.', 'branchline' ), $r['code_tag'] ) );
+		}
 		/* translators: 1: snapshot hash, 2: target branch */
-		WP_CLI::success( trim( sprintf( __( 'Merged. New head %1$s on %2$s.', 'branchline' ), $r['hash'], $p['target'] ) . ( $files ? ' ' . $files : '' ) ) );
+		WP_CLI::success( trim( sprintf( __( 'Merged. New head %1$s on %2$s.', 'branchline' ), $r['hash'], $p['target'] ) . ( $files ? ' ' . $files : '' ) . $extra ) );
 	}
 
 	private function ask( array $h ): string {

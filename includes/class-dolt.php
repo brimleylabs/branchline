@@ -343,6 +343,15 @@ class WPBR_Dolt {
 		$this->commit();
 	}
 
+	/** Delete a local branch. Its commits stay reachable from any tag or branch that has them. */
+	public function branch_delete( string $name ): void {
+		if ( $name === $this->branch ) {
+			throw new RuntimeException( 'A connection cannot delete the branch it is on.' );
+		}
+		$this->exec( 'CALL dolt_branch(?, ?)', array( '-D', $name ) );
+		$this->commit();
+	}
+
 	/** Fast-forward this connection's branch to a remote branch (pull on an unchanged local branch). */
 	public function pull_remote( string $remote, string $branch ): string {
 		$r = $this->q( 'CALL dolt_pull(?, ?)', array( $remote, $branch ) );

@@ -34,7 +34,8 @@ class WPBR_Classifier {
 	);
 	private const EDITORIAL_POST_TYPES = array( 'page' );
 
-	private const NOISE_OPTION_PREFIXES = array( '_transient_', '_site_transient_', 'wpbr_', 'action_scheduler_lock_', 'wc_remote_inbox_notifications_', 'woocommerce_admin_notice_' );
+	// _elementor_* (leading underscore) are Elementor's caches and sync markers, rewritten on page loads; elementor_* are settings.
+	private const NOISE_OPTION_PREFIXES = array( '_transient_', '_site_transient_', 'wpbr_', 'action_scheduler_lock_', 'wc_remote_inbox_notifications_', 'woocommerce_admin_notice_', '_elementor_', 'elementor_remote_info_', 'elementor_log' );
 	private const NOISE_OPTIONS         = array(
 		'cron',
 		'recently_activated',

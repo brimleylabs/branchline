@@ -3,7 +3,7 @@
  * Plugin Name:       Branchline
  * Plugin URI:        https://github.com/brimleylabs/branchline
  * Description:       Version control for the WordPress database. Every environment is a branch. Pull production content down, publish releases up, and merge with rules that know what WordPress rows mean.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Requires at least: 6.4
  * Requires PHP:      8.1
  * Author:            Brimley Labs
@@ -15,7 +15,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPBR_VERSION', '1.0.0' );
+define( 'WPBR_VERSION', '1.1.0' );
 define( 'WPBR_FILE', __FILE__ );
 define( 'WPBR_DIR', __DIR__ );
 define( 'WPBR_URL', plugin_dir_url( __FILE__ ) );
@@ -48,10 +48,18 @@ require_once WPBR_DIR . '/includes/class-classifier.php';
 require_once WPBR_DIR . '/includes/class-serialized-merge.php';
 require_once WPBR_DIR . '/includes/class-files.php';
 require_once WPBR_DIR . '/includes/class-merge-engine.php';
+require_once WPBR_DIR . '/includes/class-git.php';
+require_once WPBR_DIR . '/includes/class-workspaces.php';
+require_once WPBR_DIR . '/includes/class-release.php';
+
+// Workspaces: on when wp-config.php loads extras/workspace-switch.php (staging only).
+add_action( 'plugins_loaded', array( 'WPBR_Workspaces', 'boot' ) );
 
 if ( is_admin() ) {
 	require_once WPBR_DIR . '/includes/class-admin.php';
+	require_once WPBR_DIR . '/includes/class-admin-workspaces.php';
 	add_action( 'plugins_loaded', array( 'WPBR_Admin', 'boot' ) );
+	add_action( 'plugins_loaded', array( 'WPBR_Admin_Workspaces', 'boot' ) );
 }
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {

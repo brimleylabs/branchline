@@ -11,6 +11,7 @@ Version control for the WordPress database. Every environment is a branch. Pull 
 | [Configuration](configuration.md) | Constants, capabilities, filters |
 | [For automation and agents](for-agents.md) | You are a pipeline or a coding agent driving it |
 | [Troubleshooting](troubleshooting.md) | Something said no, or you want to go back to MySQL |
+| [Workspaces and releases](workspaces.md) | Nobody edits on staging: named workspaces for data and code, promotion into stage, named releases with rollback |
 
 ## The problem in one paragraph
 

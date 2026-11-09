@@ -107,6 +107,64 @@ Records unsaved changes as a snapshot and pushes the branch. Defaults to this br
 
 Creates a local branch from a remote one, or fast-forwards the local branch if it already exists.
 
+## Workspaces and releases
+
+These run on the staging site once workspaces are set up; see [Workspaces and releases](workspaces.md). Any `wp` command runs inside a workspace with `WPBR_WORKSPACE=<name>` in the environment.
+
+### workspace list
+
+    wp branchline workspace list [--format=table|json]
+
+Every workspace: rows of change waiting for stage, whether it is current with stage or behind by how many rows, its code branch and commits ahead, and its last snapshot.
+
+### workspace create
+
+    wp branchline workspace create <name> [--from=<ref>] [--code]
+
+A new workspace from stage (default), production, another branch or a snapshot hash. `--code` also creates a git branch and a checkout of the same name. Prints the preview link and the environment variable to run commands inside it. Names are lowercase letters, digits and dashes.
+
+### workspace delete
+
+    wp branchline workspace delete <name> [--yes]
+
+Removes the data branch, the code branch and the checkout.
+
+### workspace link
+
+    wp branchline workspace link <name> [--hours=12]
+
+A signed link that puts whoever opens it into the workspace for the given number of hours.
+
+### workspace update
+
+    wp branchline workspace update <name> [--yes] [--resolve=...] [--message=<m>]
+
+Merges stage into the workspace: data with the usual rules (stage's content wins, the workspace's structure wins, pages field by field), then code if the workspace has a code branch. Same output and flags as `pull`.
+
+### promote
+
+    wp branchline promote <name> [--yes] [--resolve=...] [--message=<m>]
+
+Merges a workspace into stage, data then code. Refuses when the workspace is behind stage, naming the update command. Refuses when the stage checkout has uncommitted changes or the code would conflict.
+
+### release
+
+    wp branchline release [<name>] [--yes] [--no-deploy] [--resolve=...]
+
+Stage to production as a named release. Defaults the name to today's date and a counter. Tags production before, tags the code, runs `WPBR_RELEASE_COMMAND` with `WPBR_RELEASE` and `WPBR_RELEASE_REF` set, publishes the data, tags production after. `--no-deploy` skips the command. Same review output as `publish`.
+
+### release list
+
+    wp branchline release list
+
+Releases so far, newest first, with the production snapshot each one made.
+
+### release rollback
+
+    wp branchline release rollback <name> [--yes] [--no-deploy]
+
+Production data back to the snapshot taken before the release, with the head you leave saved as a tag, and the deploy command run again with the previous release's tag.
+
 ## Moving a site
 
 ### import

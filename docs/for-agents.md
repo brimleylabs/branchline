@@ -51,6 +51,21 @@ If a merge is refused for decisions, the output lists each key with its label an
 
 When escalating, pass along, for each item in `human[]`: `label`, `reason`, the clashing column names, and the two values from `ours` and `theirs` for those columns. That is exactly what the review screen shows, and it is enough to decide.
 
+## Working in a workspace
+
+When the staging site has [workspaces](workspaces.md) on, the branch-per-task pattern above has first-class commands and you do not touch `DB_NAME`:
+
+    wp branchline workspace create task-123 --code      # data branch, code branch, checkout
+    WPBR_WORKSPACE=task-123 wp post update 42 --post_title="..."
+    WPBR_WORKSPACE=task-123 wp plugin activate my-plugin
+    # code lives in the checkout the create command printed; commit on branch ws/task-123
+    wp branchline workspace list                        # is it current with stage?
+    wp branchline workspace update task-123 --yes       # if not
+    wp branchline promote task-123 --yes                # into stage, when instructed
+    wp branchline release --yes                         # stage to production, only when instructed
+
+Stage is read-only, so an agent cannot edit it by accident. `promote` refuses a workspace that is behind stage. `release` tags code and data with one name and `release rollback <name>` undoes both.
+
 ## Things an agent should not do
 
 - Do not run `rollback` on production without a person's instruction. It is reversible, but it is production.

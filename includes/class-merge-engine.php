@@ -25,18 +25,25 @@ class WPBR_Merge_Engine {
 
 	private WPBR_Dolt $t;            // target connection, autocommit off
 	private WPBR_Classifier $cls;
-	private string $production;
+	private string $production;      // the upstream: source of truth for content
 
-	public function __construct( private string $target, private string $source ) {
-		$this->production = WPBR_PRODUCTION_BRANCH;
+	/**
+	 * $upstream is the branch whose content wins and whose structure yields. It is
+	 * production for pull and publish. For a workspace it is stage: stage's content
+	 * wins, the workspace's structure wins, in both directions.
+	 */
+	public function __construct( private string $target, private string $source, ?string $upstream = null ) {
+		$this->production = $upstream ?? WPBR_PRODUCTION_BRANCH;
 	}
 
 	public function target(): string {
 		return $this->target; }
 	public function source(): string {
 		return $this->source; }
+	public function upstream(): string {
+		return $this->production; }
 
-	/** Is the source branch the production branch (i.e. this is a pull)? */
+	/** Is the source branch the upstream (i.e. this is a pull)? */
 	private function source_is_production(): bool {
 		return $this->source === $this->production; }
 
